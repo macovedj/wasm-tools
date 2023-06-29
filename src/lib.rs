@@ -64,6 +64,7 @@ pub struct OutputArg {
     output: Option<PathBuf>,
 }
 
+#[derive(Debug)]
 pub enum Output<'a> {
     Wat(&'a str),
     Wasm { bytes: &'a [u8], wat: bool },
@@ -73,6 +74,7 @@ impl InputOutput {
     pub fn parse_input_wasm(&self) -> Result<Vec<u8>> {
         if let Some(path) = &self.input {
             if path != Path::new("-") {
+                dbg!(&path);
                 let bytes = wat::parse_file(path)?;
                 return Ok(bytes);
             }

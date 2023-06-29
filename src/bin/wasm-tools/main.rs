@@ -51,6 +51,7 @@ subcommands! {
     (parse, "parse")
     (validate, "validate")
     (print, "print")
+    (resolve, "resolve")
     (smith, "smith")
     (shrink, "shrink")
     (mutate, "mutate")

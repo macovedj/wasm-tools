@@ -25,6 +25,7 @@ mod operator;
 /// in-memory `String`.
 pub fn print_file(file: impl AsRef<Path>) -> Result<String> {
     let file = file.as_ref();
+    dbg!(&file);
     let contents = std::fs::read(file).context(format!("failed to read `{}`", file.display()))?;
     Printer::new().print(&contents)
 }

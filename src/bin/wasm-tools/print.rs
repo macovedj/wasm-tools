@@ -29,6 +29,7 @@ impl Opts {
         let mut printer = wasmprinter::Printer::new();
         printer.print_offsets(self.print_offsets);
         printer.print_skeleton(self.skeleton);
+        dbg!("ABOUT TO PRINT");
         let wat = printer.print(&wasm)?;
         self.io.output(wasm_tools::Output::Wat(&wat))?;
         Ok(())

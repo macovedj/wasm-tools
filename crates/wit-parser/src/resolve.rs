@@ -39,7 +39,7 @@ pub struct Resolve {
 /// A package is a collection of interfaces and worlds. Packages additionally
 /// have a unique identifier that affects generated components and uniquely
 /// identifiers this particular package.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Package {
     /// A unique name corresponding to this package.
     pub name: PackageName,

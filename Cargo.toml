@@ -19,6 +19,7 @@ members = [
   'crates/wasm-mutate-stats',
   'fuzz',
   'crates/wit-parser/fuzz',
+  'crates/depsparser'
 ]
 
 [workspace.package]
@@ -50,6 +51,7 @@ wasm-mutate = { version = "0.2.27", path = "crates/wasm-mutate" }
 wasm-shrink = { version = "0.1.28", path = "crates/wasm-shrink" }
 wasm-smith = { version = "0.12.10", path = "crates/wasm-smith" }
 wasmparser = { version = "0.107.0", path = "crates/wasmparser" }
+depsparser = { version = "0.107.0", path = "crates/depsparser" }
 wasmprinter = { version = "0.2.59", path = "crates/wasmprinter" }
 wast = { version = "60.0.0", path = "crates/wast" }
 wat = { version = "1.0.66", path = "crates/wat" }
