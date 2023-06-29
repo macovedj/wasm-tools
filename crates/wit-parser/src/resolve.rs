@@ -39,7 +39,7 @@ pub struct Resolve {
 /// A package is a collection of interfaces and worlds. Packages additionally
 /// have a unique identifier that affects generated components and uniquely
 /// identifiers this particular package.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Package {
     /// A unique name corresponding to this package.
     pub name: PackageName,
@@ -615,6 +615,7 @@ impl Remap {
             assert_eq!(self.types.len(), id.index());
             self.types.push(new_id);
         }
+
 
         // Next transfer all interfaces into `Resolve`, updating type ids
         // referenced along the way.

@@ -1142,13 +1142,13 @@ fn err_expected(
 
 /// A listing of source files which are used to get parsed into an
 /// [`UnresolvedPackage`].
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct SourceMap {
     sources: Vec<Source>,
     offset: u32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Source {
     offset: u32,
     path: PathBuf,

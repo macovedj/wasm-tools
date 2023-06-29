@@ -110,6 +110,7 @@ impl State {
     }
 }
 
+#[derive(Debug)]
 struct Naming {
     identifier: Option<String>,
     name: String,
@@ -267,6 +268,7 @@ impl Printer {
     }
 
     fn print_contents(&mut self, mut bytes: &[u8]) -> Result<()> {
+        // //dbg!("PRINTING CONTENTS");
         self.lines.clear();
         self.lines.push(0);
         self.line_offsets.clear();
@@ -287,6 +289,8 @@ impl Printer {
                     payload
                 }
             };
+            // //dbg!("ANOTHER PAYLOAD");
+            //dbg!(&payload);
             match payload {
                 Payload::Version { encoding, .. } => {
                     if let Some(e) = expected {
@@ -300,6 +304,7 @@ impl Printer {
 
                     match encoding {
                         Encoding::Module => {
+                            //dbg!("MODULE ENCODING");
                             states.push(State::new(Encoding::Module));
                             if states.len() > 1 {
                                 self.start_group("core module");
@@ -314,8 +319,10 @@ impl Printer {
                             }
                         }
                         Encoding::Component => {
+                            //dbg!("COMPONENT ENCODING");
                             states.push(State::new(Encoding::Component));
                             self.start_group("component");
+                            //dbg!(states.len());
 
                             if states.len() > 1 {
                                 let parent = &states[states.len() - 2];
@@ -380,7 +387,10 @@ impl Printer {
                     }
                     self.newline(c.range().end);
                 }
-                Payload::TypeSection(s) => self.print_types(states.last_mut().unwrap(), s)?,
+                Payload::TypeSection(s) => {
+                  //dbg!("TYPE SECTION");
+                  self.print_types(states.last_mut().unwrap(), s)?
+                },
                 Payload::ImportSection(s) => {
                     Self::ensure_module(&states)?;
                     self.print_imports(states.last_mut().unwrap(), s)?
@@ -454,6 +464,7 @@ impl Printer {
                     self.newline(range.start);
                 }
                 Payload::InstanceSection(s) => {
+                    //dbg!("INSTANCE SECTION");
                     Self::ensure_component(&states)?;
                     self.print_instances(states.last_mut().unwrap(), s)?;
                 }
@@ -469,6 +480,7 @@ impl Printer {
                     self.newline(range.start);
                 }
                 Payload::ComponentInstanceSection(s) => {
+                    //dbg!("COMPONENT INSTANCE SECTION");
                     Self::ensure_component(&states)?;
                     self.print_component_instances(states.last_mut().unwrap(), s)?;
                 }
@@ -477,6 +489,7 @@ impl Printer {
                     self.print_component_aliases(&mut states, s)?;
                 }
                 Payload::ComponentTypeSection(s) => {
+                    //dbg!("COMPONENT TYPE SECTION");
                     Self::ensure_component(&states)?;
                     self.print_component_types(&mut states, s)?;
                 }
@@ -489,6 +502,7 @@ impl Printer {
                     self.print_component_start(states.last_mut().unwrap(), range.start, start)?;
                 }
                 Payload::ComponentImportSection(s) => {
+                    //dbg!("COMPONENT IMPORT");
                     Self::ensure_component(&states)?;
                     self.print_component_imports(states.last_mut().unwrap(), s)?;
                 }
@@ -705,6 +719,7 @@ impl Printer {
         for ty in parser.into_iter_with_offsets() {
             let (offset, ty) = ty?;
             self.newline(offset);
+            //dbg!(&ty);
             self.print_type(state, ty)?;
         }
 
@@ -853,6 +868,8 @@ impl Printer {
 
     fn print_imports(&mut self, state: &mut State, parser: ImportSectionReader<'_>) -> Result<()> {
         for import in parser.into_iter_with_offsets() {
+            //dbg!("FOFOFOFO");
+            //dbg!(&import);
             let (offset, import) = import?;
             self.newline(offset);
             self.print_import(state, &import, true)?;
@@ -1254,6 +1271,7 @@ impl Printer {
 
     fn print_name(&mut self, names: &HashMap<u32, Naming>, cur_idx: u32) -> Result<()> {
         if let Some(name) = names.get(&cur_idx) {
+            //dbg!(&name);
             name.write(&mut self.result);
             self.result.push(' ');
         }
@@ -1642,6 +1660,7 @@ impl Printer {
                     self.end_group();
                 }
                 ComponentTypeDeclaration::Import(import) => {
+                    //dbg!(&import);
                     self.print_component_import(states.last_mut().unwrap(), &import, true)?
                 }
             }
@@ -1773,6 +1792,7 @@ impl Printer {
                 self.print_component_func_type(states.last_mut().unwrap(), &ty)?;
             }
             ComponentType::Component(decls) => {
+                //dbg!("COMPONENT TYPE");
                 self.print_component_type(states, decls.into_vec())?;
             }
             ComponentType::Instance(decls) => {

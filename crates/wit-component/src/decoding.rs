@@ -124,6 +124,7 @@ impl<'a> ComponentInfo<'a> {
 
         let pkg = pkg.ok_or_else(|| anyhow!("no exported component type found"))?;
         let (resolve, package) = decoder.finish(pkg);
+        dbg!(&resolve.interfaces);
         Ok((resolve, package))
     }
 
@@ -143,6 +144,7 @@ impl<'a> ComponentInfo<'a> {
             includes: Default::default(),
             include_names: Default::default(),
         });
+        dbg!(&resolve.interfaces);
         let mut decoder = WitPackageDecoder {
             resolve,
             info: self,

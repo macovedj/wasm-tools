@@ -37,6 +37,7 @@ pub fn encode_component(resolve: &Resolve, package: PackageId) -> Result<Compone
         resolve,
         package,
     };
+    dbg!(&resolve.interfaces);
     encoder.run()?;
     Ok(encoder.component)
 }
