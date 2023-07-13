@@ -432,9 +432,11 @@ pub mod kw {
     custom_keyword!(import);
     custom_keyword!(instance);
     custom_keyword!(instantiate);
+    custom_keyword!(integrity);
     custom_keyword!(interface);
     custom_keyword!(invoke);
     custom_keyword!(item);
+    custom_keyword!(locked);
     custom_keyword!(last);
     custom_keyword!(local);
     custom_keyword!(memory);
@@ -462,10 +464,12 @@ pub mod kw {
     custom_keyword!(r#mut = "mut");
     custom_keyword!(r#type = "type");
     custom_keyword!(r#ref = "ref");
+    custom_keyword!(range);
     custom_keyword!(ref_func = "ref.func");
     custom_keyword!(ref_null = "ref.null");
     custom_keyword!(register);
     custom_keyword!(rec);
+    custom_keyword!(relative);
     custom_keyword!(rep);
     custom_keyword!(resource);
     custom_keyword!(resource_new = "resource.new");
@@ -478,6 +482,8 @@ pub mod kw {
     custom_keyword!(r#final = "final");
     custom_keyword!(table);
     custom_keyword!(then);
+    custom_keyword!(unlocked);
+    custom_keyword!(url);
     custom_keyword!(r#try = "try");
     custom_keyword!(v128);
     custom_keyword!(value);
