@@ -118,10 +118,6 @@ impl<'a> Parse<'a> for ImplementationImport<'a> {
           p.parse::<kw::unlocked>()?;
           kind = ImplementationImportKinds::Unlocked;
           let parsed_name = p.parse();
-          if p.peek::<kw::range>() {
-            p.parse::<kw::range>()?;
-            range = Some(p.parse()?);
-          }
           parsed_name
         } else {
           Err(p.error("Unknown Implementation Import"))
@@ -191,10 +187,10 @@ impl<'a> Parse<'a> for ImplementationImport<'a> {
 impl Peek for ImplementationImport<'_> {
   fn peek(cursor: Cursor) -> bool {
       match cursor.keyword() {
-        Some(("relative", _)) => true,
+        Some(("relative-url", _)) => true,
         Some(("url", _)) => true,
-        Some(("locked", _)) => true,
-        Some(("unlocked", _)) => true,
+        Some(("locked-dep", _)) => true,
+        Some(("unlocked-dep", _)) => true,
         _ => false
       }
   }

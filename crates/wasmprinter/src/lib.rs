@@ -1906,7 +1906,7 @@ impl Printer {
                     ImplementationImport::Relative(metadata) => {
                         self.print_str(metadata.name)?;
                         self.result.push(' ');
-                        self.start_group("relative ");
+                        self.start_group("relative-url ");
                         self.print_str(metadata.location)?;
                         if metadata.integrity.len() > 0 {
                             self.result.push(' ');
@@ -1915,7 +1915,7 @@ impl Printer {
                         }
                     }
                     ImplementationImport::Locked(metadata) => {
-                        self.start_group("locked ");
+                        self.start_group("locked-dep ");
                         self.print_str(&s.as_str())?;
                         if metadata.integrity.len() > 0 {
                             self.result.push(' ');
@@ -1924,7 +1924,7 @@ impl Printer {
                         }
                     }
                     ImplementationImport::Unlocked(metadata) => {
-                        self.start_group("unlocked ");
+                        self.start_group("unlocked-dep ");
                         self.print_str(&s.as_str())?;
                         if metadata.range.len() > 0 {
                             self.result.push(' ');
