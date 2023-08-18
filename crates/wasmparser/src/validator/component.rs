@@ -32,7 +32,6 @@ fn to_kebab_str<'a>(s: &'a str, desc: &str, offset: usize) -> Result<&'a KebabSt
             if s.is_empty() {
                 bail!(offset, "{desc} name cannot be empty");
             }
-
             bail!(offset, "{desc} name `{s}` is not in kebab case");
         }
     }

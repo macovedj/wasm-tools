@@ -135,12 +135,12 @@ impl<'a> Parse<'a> for ImplementationImport<'a> {
         ImplementationImportKinds::Locked => Ok(ImplementationImport::Locked(ImportMetadata {
           name,
           location: None,
-          integrity
+          integrity,
         })),
         ImplementationImportKinds::Unlocked => Ok(ImplementationImport::Unlocked(ImportMetadata {
           name,
           location: None,
-          integrity
+          integrity,
         })),
         _ => {
           Err(parser.error("Unknown Implementation Import"))
@@ -180,12 +180,12 @@ impl<'a> Parse<'a> for ImplementationImport<'a> {
       ImplementationImportKinds::Url => Ok(ImplementationImport::Url(ImportMetadata {
         name,
         location,
-        integrity
+        integrity,
       })),
       ImplementationImportKinds::Relative => Ok(ImplementationImport::Relative(ImportMetadata {
         name,
         location,
-        integrity
+        integrity,
       })),
       ImplementationImportKinds::Naked => Ok(ImplementationImport::Relative(ImportMetadata {
         name,

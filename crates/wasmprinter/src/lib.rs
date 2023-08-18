@@ -1934,11 +1934,6 @@ impl Printer {
                     ImplementationImport::Unlocked(metadata) => {
                         self.start_group("unlocked-dep ");
                         self.print_str(&s.as_str())?;
-                        if metadata.integrity.len() > 0 {
-                            self.result.push(' ');
-                            self.result.push_str("integrity ");
-                            self.print_str(metadata.integrity)?;
-                        }
                     }
                 }
                 self.end_group();
