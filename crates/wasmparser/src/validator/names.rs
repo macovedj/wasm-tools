@@ -326,6 +326,7 @@ impl KebabName {
                     at: at.map(|i| i as u32),
                 }
             }
+            ComponentExternName::Implementation(s) => ParsedKebabName::Normal,
         };
         Ok(KebabName {
             raw: name.as_str().to_string(),

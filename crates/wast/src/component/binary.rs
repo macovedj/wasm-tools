@@ -1017,6 +1017,77 @@ impl<'a> From<ComponentExternName<'a>> for wasm_encoder::ComponentExternName<'a>
         match name {
             ComponentExternName::Kebab(name) => Self::Kebab(name),
             ComponentExternName::Interface(name) => Self::Interface(name),
+            ComponentExternName::Implementation(impl_import) => {
+              match impl_import {
+                ImplementationImport::Url(metadata) => {
+                  if let Some(location) = metadata.location {
+                    if let Some(integrity) = metadata.integrity {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Url(wasm_encoder::ImportMetadata {name: metadata.name, location, integrity: Some(integrity)}))
+                    } else {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Url(wasm_encoder::ImportMetadata {name: metadata.name, location, integrity: None}))
+                    }
+                  } else {
+                    if let Some(integrity) = metadata.integrity {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Url(wasm_encoder::ImportMetadata {name: metadata.name, location: "", integrity: Some(integrity)}))
+                    } else {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Url(wasm_encoder::ImportMetadata {name: metadata.name, location: "", integrity: None}))
+                    }
+                  }
+                }
+                ImplementationImport::Relative(metadata) => {
+                  if let Some(location) = metadata.location {
+                    if let Some(integrity) = metadata.integrity {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Relative(wasm_encoder::ImportMetadata {name: metadata.name, location, integrity: Some(integrity)}))
+                    } else {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Relative(wasm_encoder::ImportMetadata {name: metadata.name, location, integrity: None}))
+                    }
+                  } else {
+                    if let Some(integrity) = metadata.integrity {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Relative(wasm_encoder::ImportMetadata {name: metadata.name, location: "", integrity: Some(integrity)}))
+                    } else {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Relative(wasm_encoder::ImportMetadata {name: metadata.name, location: "", integrity: None}))
+                    }
+                  }
+                }
+                ImplementationImport::Naked(metadata) => {
+                    if let Some(integrity) = metadata.integrity {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Naked(wasm_encoder::ImportMetadata {name: metadata.name, location: "", integrity: Some(integrity)}))
+                    } else {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Naked(wasm_encoder::ImportMetadata {name: metadata.name, location: "", integrity: None}))
+                    }
+                }
+                ImplementationImport::Locked(metadata) => {
+                  if let Some(location) = metadata.location {
+                    if let Some(integrity) = metadata.integrity {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Locked(wasm_encoder::ImportMetadata {name: metadata.name, location, integrity: Some(integrity)}))
+                    } else {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Locked(wasm_encoder::ImportMetadata {name: metadata.name, location, integrity: None}))
+                    }
+                  } else {
+                    if let Some(integrity) = metadata.integrity {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Locked(wasm_encoder::ImportMetadata {name: metadata.name, location: "", integrity: Some(integrity)}))
+                    } else {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Locked(wasm_encoder::ImportMetadata {name: metadata.name, location: "", integrity: None}))
+                    }
+                  }
+                }
+                ImplementationImport::Unlocked(metadata) => {
+                  if let Some(location) = metadata.location {
+                    if let Some(integrity) = metadata.integrity {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Unlocked(wasm_encoder::ImportMetadata {name: metadata.name, location, integrity: Some(integrity)}))
+                    } else {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Unlocked(wasm_encoder::ImportMetadata {name: metadata.name, location, integrity: None}))
+                    }
+                  } else {
+                    if let Some(integrity) = metadata.integrity {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Unlocked(wasm_encoder::ImportMetadata {name: metadata.name, location: "", integrity: Some(integrity)}))
+                    } else {
+                      Self::Implementation(wasm_encoder::ImplementationImport::Unlocked(wasm_encoder::ImportMetadata {name: metadata.name, location: "", integrity: None}))
+                    }
+                  }
+                }
+              }
+            }
         }
     }
 }

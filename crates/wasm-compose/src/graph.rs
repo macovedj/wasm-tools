@@ -37,7 +37,7 @@ pub struct Component<'a> {
     /// The type information of the component.
     pub(crate) types: Types,
     /// The import map of the component.
-    pub(crate) imports: IndexMap<String, ComponentTypeRef>,
+    pub imports: IndexMap<String, ComponentTypeRef>,
     /// The export map of the component.
     pub(crate) exports: IndexMap<String, (ComponentExternalKind, u32)>,
 }
@@ -127,6 +127,26 @@ impl<'a> Component<'a> {
                                             | wasmparser::ComponentExternName::Interface(s) => {
                                                 s.to_string()
                                             }
+                                            wasmparser::ComponentExternName::Implementation(
+                                                impl_import,
+                                            ) => match impl_import {
+                                                wasmparser::ImplementationImport::Url(name) => {
+                                                    name.as_str()
+                                                }
+                                                wasmparser::ImplementationImport::Relative(
+                                                    name,
+                                                ) => name.as_str(),
+                                                wasmparser::ImplementationImport::Naked(name) => {
+                                                    name.as_str()
+                                                }
+                                                wasmparser::ImplementationImport::Locked(name) => {
+                                                    name.as_str()
+                                                }
+                                                wasmparser::ImplementationImport::Unlocked(
+                                                    name,
+                                                ) => name.as_str(),
+                                            }
+                                            .to_string(),
                                         };
                                         imports.insert(name, import.ty);
                                     }
@@ -139,6 +159,26 @@ impl<'a> Component<'a> {
                                             | wasmparser::ComponentExternName::Interface(s) => {
                                                 s.to_string()
                                             }
+                                            wasmparser::ComponentExternName::Implementation(
+                                                impl_import,
+                                            ) => match impl_import {
+                                                wasmparser::ImplementationImport::Url(name) => {
+                                                    name.as_str()
+                                                }
+                                                wasmparser::ImplementationImport::Relative(
+                                                    name,
+                                                ) => name.as_str(),
+                                                wasmparser::ImplementationImport::Naked(name) => {
+                                                    name.as_str()
+                                                }
+                                                wasmparser::ImplementationImport::Locked(name) => {
+                                                    name.as_str()
+                                                }
+                                                wasmparser::ImplementationImport::Unlocked(
+                                                    name,
+                                                ) => name.as_str(),
+                                            }
+                                            .to_string(),
                                         };
                                         exports.insert(name, (export.kind, export.index));
                                     }

@@ -1863,7 +1863,6 @@ impl Printer {
             self.newline(offset);
             self.print_component_import(state, &import, true)?;
         }
-
         Ok(())
     }
 
@@ -1887,6 +1886,56 @@ impl Printer {
             ComponentExternName::Interface(s) => {
                 self.start_group("interface ");
                 self.print_str(s)?;
+                self.end_group();
+                Ok(())
+            }
+            ComponentExternName::Implementation(s) => {
+                match s {
+                    ImplementationImport::Url(metadata) => {
+                        self.print_str(metadata.name)?;
+                        self.result.push(' ');
+                        self.start_group("url ");
+                        self.print_str(metadata.location)?;
+                        if metadata.integrity.len() > 0 {
+                            self.result.push(' ');
+                            self.result.push_str("integrity ");
+                            self.print_str(metadata.integrity)?;
+                        }
+                    }
+                    ImplementationImport::Relative(metadata) => {
+                        self.print_str(metadata.name)?;
+                        self.result.push(' ');
+                        self.start_group("relative-url ");
+                        self.print_str(metadata.location)?;
+                        if metadata.integrity.len() > 0 {
+                            self.result.push(' ');
+                            self.result.push_str("integrity ");
+                            self.print_str(metadata.integrity)?;
+                        }
+                    }
+                    ImplementationImport::Naked(metadata) => {
+                        self.print_str(metadata.name)?;
+                        self.result.push(' ');
+                        if metadata.integrity.len() > 0 {
+                            self.result.push(' ');
+                            self.result.push_str("integrity ");
+                            self.print_str(metadata.integrity)?;
+                        }
+                    }
+                    ImplementationImport::Locked(metadata) => {
+                        self.start_group("locked-dep ");
+                        self.print_str(&s.as_str())?;
+                        if metadata.integrity.len() > 0 {
+                            self.result.push(' ');
+                            self.result.push_str("integrity ");
+                            self.print_str(metadata.integrity)?;
+                        }
+                    }
+                    ImplementationImport::Unlocked(metadata) => {
+                        self.start_group("unlocked-dep ");
+                        self.print_str(&s.as_str())?;
+                    }
+                }
                 self.end_group();
                 Ok(())
             }

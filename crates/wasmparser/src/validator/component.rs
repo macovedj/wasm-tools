@@ -32,7 +32,6 @@ fn to_kebab_str<'a>(s: &'a str, desc: &str, offset: usize) -> Result<&'a KebabSt
             if s.is_empty() {
                 bail!(offset, "{desc} name cannot be empty");
             }
-
             bail!(offset, "{desc} name `{s}` is not in kebab case");
         }
     }
@@ -2488,9 +2487,9 @@ impl ComponentState {
         let mut info = TypeInfo::new();
         let mut field_map = IndexMap::with_capacity(fields.len());
 
-        if fields.is_empty() {
-            bail!(offset, "record type must have at least one field");
-        }
+        // if fields.is_empty() {
+        //     bail!(offset, "record type must have at least one field");
+        // }
 
         for (name, ty) in fields {
             let name = to_kebab_str(name, "record field", offset)?;
