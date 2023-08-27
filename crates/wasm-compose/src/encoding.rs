@@ -1041,7 +1041,8 @@ impl<'a> ImportMap<'a> {
             assert!(self
                 .0
                 .insert(
-                    entry.component.name.to_kebab_case().into(),
+                    entry.component.name.clone().into(),
+                    // entry.component.name.to_kebab_case().into(),
                     ImportMapEntry::Component(&entry.component),
                 )
                 .is_none());

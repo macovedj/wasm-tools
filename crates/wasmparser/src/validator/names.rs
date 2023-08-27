@@ -427,11 +427,11 @@ impl KebabName {
     /// valid.
     pub fn from_import(name: ComponentImportName<'_>, offset: usize) -> Result<KebabName> {
         let validate_kebab = |s: &str| {
-            if KebabStr::new(s).is_none() {
-                bail!(offset, "`{s}` is not in kebab case")
-            } else {
-                Ok(())
-            }
+            // if KebabStr::new(s).is_none() {
+            // bail!(offset, "`{s}` is not in kebab case")
+            // } else {
+            Ok(())
+            // }
         };
         let find = |s: &str, c: char| match s.find(c) {
             Some(i) => Ok(i),

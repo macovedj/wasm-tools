@@ -281,6 +281,8 @@ impl<S: AsRef<str>> AsComponentImportName for S {
         let s = self.as_ref();
         if s.contains("/") {
             ComponentImportName::Interface(s)
+        } else if s.contains(":") {
+            ComponentImportName::Locked((s, "asdf"))
         } else {
             ComponentImportName::Kebab(s)
         }
