@@ -41,7 +41,6 @@ impl<'a> Bundler<'a> {
                 ComponentImportName::Kebab(name)
                 | ComponentImportName::Locked((name, _))
                 | ComponentImportName::Unlocked(name) => {
-                    dbg!(&name);
                     let mut full_name = name.split('/');
                     let name = full_name.next();
                     if let Some(name) = name {

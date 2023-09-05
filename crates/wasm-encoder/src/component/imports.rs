@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use crate::{
     encode_section, ComponentExportKind, ComponentSection, ComponentSectionId, ComponentValType,
     Encode,
@@ -213,8 +215,9 @@ impl Encode for ComponentImportName<'_> {
             }
             ComponentImportName::Locked((name, integrity)) => {
                 sink.push(0x05);
+                let hash = format!("sha256-{}", sha256::digest(integrity.to_string()));
                 name.encode(sink);
-                integrity.encode(sink);
+                hash.encode(sink);
             }
             ComponentImportName::Unlocked(name) => {
                 sink.push(0x06);
@@ -282,7 +285,8 @@ impl<S: AsRef<str>> AsComponentImportName for S {
         if s.contains("/") {
             ComponentImportName::Interface(s)
         } else if s.contains(":") {
-            ComponentImportName::Locked((s, "asdf"))
+            // let integrity = sha256::Hash(s);
+            ComponentImportName::Locked((s, s))
         } else {
             ComponentImportName::Kebab(s)
         }
