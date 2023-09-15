@@ -1,73 +1,17 @@
-use std::{collections::HashMap, marker::PhantomData};
-
 use anyhow::{bail, Result};
 use wasmparser::{
     Chunk, ComponentImport, ComponentImportSectionReader, ComponentType, ComponentTypeDeclaration,
-    ComponentTypeSectionReader, Encoding, Parser, Payload, SubType,
+    ComponentTypeSectionReader, Parser, Payload,
 };
 
-pub struct DepsParser<'a> {
-    name: &'a str,
-}
+pub struct DepsParser {}
 
-pub struct State {
-    _encoding: Encoding,
-    _name: Option<Naming>,
-    _core: CoreState,
-    _component: ComponentState,
-}
-
-#[derive(Default)]
-struct ComponentState {
-    _types: u32,
-    _funcs: u32,
-    _instances: u32,
-    _components: u32,
-    _values: u32,
-    _type_names: HashMap<u32, Naming>,
-    _func_names: HashMap<u32, Naming>,
-    _component_names: HashMap<u32, Naming>,
-    _instance_names: HashMap<u32, Naming>,
-    _value_names: HashMap<u32, Naming>,
-}
-
-#[derive(Default)]
-struct CoreState {
-    _types: Vec<Option<SubType>>,
-    _funcs: u32,
-    _memories: u32,
-    _tags: u32,
-    _globals: u32,
-    _tables: u32,
-    _labels: u32,
-    _modules: u32,
-    _instances: u32,
-    _func_names: HashMap<u32, Naming>,
-    _local_names: HashMap<(u32, u32), Naming>,
-    _label_names: HashMap<(u32, u32), Naming>,
-    _type_names: HashMap<u32, Naming>,
-    _table_names: HashMap<u32, Naming>,
-    _memory_names: HashMap<u32, Naming>,
-    _global_names: HashMap<u32, Naming>,
-    _element_names: HashMap<u32, Naming>,
-    _data_names: HashMap<u32, Naming>,
-    _module_names: HashMap<u32, Naming>,
-    _instance_names: HashMap<u32, Naming>,
-}
-
-#[derive(Debug)]
-struct Naming {
-    _identifier: Option<String>,
-    _name: String,
-}
-
-impl<'a> DepsParser<'a> {
+impl DepsParser {
     pub fn new() -> Self {
-        Self { name: "foo" }
+        Self {}
     }
     pub fn parse_type_imports(
         &mut self,
-        _states: &mut Vec<State>,
         parser: ComponentTypeSectionReader,
         deps: &mut Vec<String>,
     ) -> Result<()> {
@@ -75,7 +19,6 @@ impl<'a> DepsParser<'a> {
             let (_offset, ty) = ty?;
             match ty {
                 ComponentType::Component(decls) => {
-                    dbg!("COMPONENT TYPE");
                     for decl in decls.into_vec() {
                         match decl {
                             ComponentTypeDeclaration::Type(ty) => match ty {
@@ -100,7 +43,7 @@ impl<'a> DepsParser<'a> {
                                 }
                                 _ => {}
                             },
-                            ComponentTypeDeclaration::Import(import) => {}
+                            ComponentTypeDeclaration::Import(_) => {}
                             _ => {}
                         }
                     }
@@ -110,22 +53,22 @@ impl<'a> DepsParser<'a> {
         }
         Ok(())
     }
-    pub fn parse_imports(
+
+    pub fn parse_imports<'a>(
         &mut self,
-        _states: &mut Vec<State>,
         parser: ComponentImportSectionReader<'a>,
         deps: &mut Vec<ComponentImport<'a>>,
-    ) -> Result<Vec<ComponentImport<'a>>> {
+    ) -> Result<()> {
         for import in parser.into_iter_with_offsets() {
             let (_, imp) = import.unwrap().clone();
             deps.push(imp);
         }
-        Ok(deps.to_vec())
+        Ok(())
     }
-    pub fn parse(&mut self, mut bytes: &'a [u8]) -> Result<Vec<ComponentImport<'a>>> {
+
+    pub fn parse<'a>(&mut self, mut bytes: &'a [u8]) -> Result<Vec<ComponentImport<'a>>> {
         let mut parser = Parser::new(0);
         let mut _consumed = 0;
-        let mut states: Vec<State> = Vec::new();
         let mut deps = Vec::new();
         loop {
             let payload = match parser.parse(bytes, true)? {
@@ -135,15 +78,9 @@ impl<'a> DepsParser<'a> {
                     payload
                 }
             };
-            dbg!(&payload);
-            // consumed += size;
             match payload {
-                // Payload::ComponentTypeSection(s) => {
-                //   self.parse_type_imports(&mut states, s, &mut deps);
-                //   // dbg!(deps);
-                // }
                 Payload::ComponentImportSection(s) => {
-                    let parsed = self.parse_imports(&mut states, s, &mut deps);
+                    self.parse_imports(s, &mut deps)?;
                 }
                 Payload::CodeSectionStart {
                     count: _,
@@ -152,14 +89,14 @@ impl<'a> DepsParser<'a> {
                 } => {
                     parser.skip_section();
                 }
-                Payload::ModuleSection { parser, range } => {
+                Payload::ModuleSection { range, .. } => {
                     let offset = range.end - range.start;
                     if offset > bytes.len() {
                         bail!("invalid module or component section range");
                     }
                     bytes = &bytes[offset..];
                 }
-                Payload::ComponentSection { parser, range } => {
+                Payload::ComponentSection { range, .. } => {
                     let offset = range.end - range.start;
                     if offset > bytes.len() {
                         bail!("invalid module or component section range");
@@ -167,7 +104,6 @@ impl<'a> DepsParser<'a> {
                     bytes = &bytes[offset..];
                 }
                 Payload::End(_) => {
-                    dbg!("PAYLOAD END");
                     break;
                 }
                 _ => {}

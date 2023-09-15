@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::{collections::HashMap, fs, path::Path};
+use std::{fs, path::Path};
 use warg_client::{
     storage::{FileSystemContentStorage, FileSystemRegistryStorage, RegistryStorage},
     Client,
@@ -44,22 +44,28 @@ impl<'a> Bundler<'a> {
                     let mut full_name = name.split('/');
                     let name = full_name.next();
                     if let Some(name) = name {
-                        let pkg_id = PackageId::new(name)?;
-                        if let Some(info) = self.client.registry().load_package(&pkg_id).await? {
-                            let state = &info.state.releases().last().unwrap().state;
-                            if let ReleaseState::Released { content } = state {
-                                let full_digest = content.to_string();
-                                let digest = full_digest.split(':').last().unwrap();
-                                let mut content_path = String::from(
-                                    "/Users/interpretations/Library/Caches/warg/content/sha256/",
-                                );
-                                content_path.push_str(&digest);
-                                let path = Path::new(&content_path);
-                                let bytes = fs::read(path)?;
-                                component.section(&RawSection {
-                                    id: ComponentSectionId::Component.into(),
-                                    data: &bytes,
-                                });
+                        let mut version_and_name = name.split('@');
+                        let identifier = version_and_name.next();
+                        let version = version_and_name.next();
+                        if let Some(name) = identifier {
+                            let pkg_id = PackageId::new(name)?;
+                            if let Some(info) = self.client.registry().load_package(&pkg_id).await?
+                            {
+                                let state = &info.state.releases().last().unwrap().state;
+                                if let ReleaseState::Released { content } = state {
+                                    let full_digest = content.to_string();
+                                    let digest = full_digest.split(':').last().unwrap();
+                                    let mut content_path = String::from(
+                                      "/Users/interpretations/Library/Caches/warg/content/sha256/",
+                                  );
+                                    content_path.push_str(&digest);
+                                    let path = Path::new(&content_path);
+                                    let bytes = fs::read(path)?;
+                                    component.section(&RawSection {
+                                        id: ComponentSectionId::Component.into(),
+                                        data: &bytes,
+                                    });
+                                }
                             }
                         }
                     }

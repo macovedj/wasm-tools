@@ -1839,6 +1839,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "wasm-deps"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "wasmparser 0.112.0",
+]
+
+[[package]]
 name = "wasm-encoder"
 version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
