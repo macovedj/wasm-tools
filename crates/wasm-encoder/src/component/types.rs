@@ -1,8 +1,8 @@
 use super::CORE_TYPE_SORT;
 use crate::{
-    encode_section, Alias, AsComponentExportName, AsComponentImportName, ComponentExportKind,
-    ComponentOuterAliasKind, ComponentSection, ComponentSectionId, ComponentTypeRef, Encode,
-    EntityType, ValType,
+    component::*, encode_section, Alias, AsComponentExportName, AsComponentImportName,
+    ComponentExportKind, ComponentOuterAliasKind, ComponentSection, ComponentSectionId,
+    ComponentTypeRef, Encode, EntityType, ValType,
 };
 
 /// Represents the type of a core module.
@@ -251,9 +251,15 @@ impl ComponentType {
     }
 
     /// Defines an import in this component type.
-    pub fn import(&mut self, name: impl AsComponentImportName, ty: ComponentTypeRef) -> &mut Self {
+    pub fn import(
+        &mut self,
+        name: impl AsComponentImportName,
+        ty: ComponentTypeRef,
+        import_kind: ImportKind,
+    ) -> &mut Self {
         self.bytes.push(0x03);
-        name.as_component_import_name().encode(&mut self.bytes);
+        name.as_component_import_name(import_kind)
+            .encode(&mut self.bytes);
         ty.encode(&mut self.bytes);
         self.num_added += 1;
         match ty {

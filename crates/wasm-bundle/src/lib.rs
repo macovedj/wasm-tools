@@ -6,7 +6,7 @@ use warg_client::{
 };
 use warg_protocol::{package::ReleaseState, registry::PackageId};
 use wasm_encoder::{
-    Component, ComponentImportSection, ComponentSectionId, ComponentTypeRef, RawSection,
+    Component, ComponentImportSection, ComponentSectionId, ComponentTypeRef, ImportKind, RawSection,
 };
 use wasmparser::{Chunk, ComponentImportName, ComponentImportSectionReader, Parser, Payload};
 
@@ -77,7 +77,11 @@ impl<'a> Bundler<'a> {
                     wasmparser::ComponentTypeRef::Type(_) => todo!(),
                     wasmparser::ComponentTypeRef::Instance(i) => {
                         let extern_name = wasm_encoder::ComponentImportName::Interface(&name);
-                        imports.import(extern_name, ComponentTypeRef::Instance(i));
+                        imports.import(
+                            extern_name,
+                            ComponentTypeRef::Instance(i),
+                            ImportKind::Interface,
+                        );
                     }
                     wasmparser::ComponentTypeRef::Component(_) => todo!(),
                 },

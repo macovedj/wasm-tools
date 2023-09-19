@@ -19,7 +19,6 @@ members = [
   'crates/wasm-mutate-stats',
   'fuzz',
   'crates/wit-parser/fuzz',
-  'crates/wasm-deps'
 ]
 
 [workspace.package]

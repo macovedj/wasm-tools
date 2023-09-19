@@ -14,7 +14,6 @@ A low-level WebAssembly encoder.
 
 [dependencies]
 leb128 = { workspace = true }
-sha256 = "1.4.0"
 
 [dev-dependencies]
 anyhow = { workspace = true }

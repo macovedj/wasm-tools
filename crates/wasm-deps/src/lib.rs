@@ -24,22 +24,17 @@ impl DepsParser {
                             ComponentTypeDeclaration::Type(ty) => match ty {
                                 ComponentType::Component(cdecls) => {
                                     for cdecl in cdecls.into_vec() {
-                                        dbg!(&cdecl);
                                         match cdecl {
                                             ComponentTypeDeclaration::Import(import) => {
                                                 let name = import.name.as_str().to_owned();
                                                 deps.push(name);
                                             }
-                                            _ => {
-                                                dbg!("OTHER");
-                                            }
+                                            _ => {}
                                         }
                                     }
                                 }
                                 ComponentType::Instance(idecls) => {
-                                    for idecl in idecls.into_vec() {
-                                        dbg!(idecl);
-                                    }
+                                    for idecl in idecls.into_vec() {}
                                 }
                                 _ => {}
                             },

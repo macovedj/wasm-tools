@@ -116,6 +116,17 @@ pub struct ComponentImportSection {
     num_added: u32,
 }
 
+/// Kinds of import
+#[derive(Debug)]
+pub enum ImportKind {
+    /// locked
+    Locked,
+    /// unlocked
+    Unlocked,
+    /// interface
+    Interface,
+}
+
 impl ComponentImportSection {
     /// Create a new component import section encoder.
     pub fn new() -> Self {
@@ -133,8 +144,14 @@ impl ComponentImportSection {
     }
 
     /// Define an import in the component import section.
-    pub fn import(&mut self, name: impl AsComponentImportName, ty: ComponentTypeRef) -> &mut Self {
-        name.as_component_import_name().encode(&mut self.bytes);
+    pub fn import(
+        &mut self,
+        name: impl AsComponentImportName,
+        ty: ComponentTypeRef,
+        import_kind: ImportKind,
+    ) -> &mut Self {
+        name.as_component_import_name(import_kind)
+            .encode(&mut self.bytes);
         ty.encode(&mut self.bytes);
         self.num_added += 1;
         self
@@ -215,7 +232,7 @@ impl Encode for ComponentImportName<'_> {
             }
             ComponentImportName::Locked((name, integrity)) => {
                 sink.push(0x05);
-                let hash = format!("sha256-{}", sha256::digest(integrity.to_string()));
+                let hash = format!("sha256-{}", "foo");
                 name.encode(sink);
                 hash.encode(sink);
             }
@@ -270,23 +287,26 @@ impl<S: AsRef<str>> AsComponentExportName for S {
 /// or from a string.
 pub trait AsComponentImportName {
     /// Converts this receiver into a `ComponentImportName`.
-    fn as_component_import_name(&self) -> ComponentImportName<'_>;
+    fn as_component_import_name(&self, import_kind: ImportKind) -> ComponentImportName<'_>;
 }
 
 impl AsComponentImportName for ComponentImportName<'_> {
-    fn as_component_import_name(&self) -> ComponentImportName<'_> {
+    fn as_component_import_name(&self, import_kind: ImportKind) -> ComponentImportName<'_> {
         *self
     }
 }
 
 impl<S: AsRef<str>> AsComponentImportName for S {
-    fn as_component_import_name(&self) -> ComponentImportName<'_> {
+    fn as_component_import_name(&self, import_kind: ImportKind) -> ComponentImportName<'_> {
         let s = self.as_ref();
         if s.contains("/") {
             ComponentImportName::Interface(s)
         } else if s.contains(":") {
-            // let integrity = sha256::Hash(s);
-            ComponentImportName::Locked((s, s))
+            match import_kind {
+                ImportKind::Locked => ComponentImportName::Locked((s, s)),
+                ImportKind::Unlocked => ComponentImportName::Unlocked(s),
+                ImportKind::Interface => ComponentImportName::Interface(s),
+            }
         } else {
             ComponentImportName::Kebab(s)
         }

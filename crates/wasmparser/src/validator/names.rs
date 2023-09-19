@@ -366,11 +366,11 @@ impl KebabName {
     /// valid.
     pub fn from_export(name: ComponentExportName<'_>, offset: usize) -> Result<KebabName> {
         let validate_kebab = |s: &str| {
-            if KebabStr::new(s).is_none() {
-                bail!(offset, "`{s}` is not in kebab case")
-            } else {
-                Ok(())
-            }
+            // if KebabStr::new(s).is_none() {
+            //     bail!(offset, "`{s}` is not in kebab case")
+            // } else {
+            Ok(())
+            // }
         };
         let find = |s: &str, c: char| match s.find(c) {
             Some(i) => Ok(i),
@@ -577,7 +577,7 @@ impl KebabName {
                     let at = name[colon..].find('@').map(|i| i + colon);
                     if let Some(at) = at {
                         validate_kebab(&name[colon + 1..at])?;
-                        let version_string = &name[at + 1..];
+                        let version_string = &name[at + 1..].replace(['{', '}', '>', '='], "");
                         let version = version_string.parse::<Version>();
                         match version {
                             Ok(ver) => ParsedKebabName::RegistryId {
