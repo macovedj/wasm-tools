@@ -335,9 +335,11 @@ impl<'a> ValtypeEncoder<'a> for RootTypeEncoder<'_, 'a> {
         // own types.
         if self.interface.is_none() {
             Some(if self.import_types {
-                self.state
-                    .component
-                    .import(name, ComponentTypeRef::Type(TypeBounds::Eq(idx)))
+                self.state.component.import(
+                    name,
+                    ComponentTypeRef::Type(TypeBounds::Eq(idx)),
+                    ImportKind::Interface,
+                )
             } else {
                 self.state
                     .component
@@ -351,9 +353,11 @@ impl<'a> ValtypeEncoder<'a> for RootTypeEncoder<'_, 'a> {
     fn export_resource(&mut self, name: &'a str) -> u32 {
         assert!(self.interface.is_none());
         assert!(self.import_types);
-        self.state
-            .component
-            .import(name, ComponentTypeRef::Type(TypeBounds::SubResource))
+        self.state.component.import(
+            name,
+            ComponentTypeRef::Type(TypeBounds::SubResource),
+            ImportKind::Interface,
+        )
     }
     fn import_type(&mut self, interface: InterfaceId, id: TypeId) -> u32 {
         if !self.import_types {

@@ -496,9 +496,11 @@ impl<'a> EncodingState<'a> {
             return Ok(());
         }
         let instance_type_idx = self.component.type_instance(&ty);
-        let instance_idx = self
-            .component
-            .import(name, ComponentTypeRef::Instance(instance_type_idx));
+        let instance_idx = self.component.import(
+            name,
+            ComponentTypeRef::Instance(instance_type_idx),
+            ImportKind::Interface,
+        );
         let prev = self.imported_instances.insert(interface_id, instance_idx);
         assert!(prev.is_none());
         Ok(())
@@ -520,7 +522,9 @@ impl<'a> EncodingState<'a> {
             let idx = self
                 .root_import_type_encoder(None)
                 .encode_func_type(resolve, func)?;
-            let func_idx = self.component.import(&name, ComponentTypeRef::Func(idx));
+            let func_idx =
+                self.component
+                    .import(&name, ComponentTypeRef::Func(idx), ImportKind::Interface);
             let prev = self.imported_funcs.insert(name, func_idx);
             assert!(prev.is_none());
         }
@@ -893,9 +897,11 @@ impl<'a> EncodingState<'a> {
         // above.
         for (_, func) in resolve.interfaces[export].functions.iter() {
             let ty = nested.encode_func_type(resolve, func)?;
-            nested
-                .component
-                .import(&import_func_name(func), ComponentTypeRef::Func(ty));
+            nested.component.import(
+                &import_func_name(func),
+                ComponentTypeRef::Func(ty),
+                ImportKind::Interface,
+            );
         }
 
         // Swap the `nested.type_map` which was previously from `TypeId` to
@@ -1026,9 +1032,11 @@ impl<'a> EncodingState<'a> {
                     )
                 } else {
                     let name = self.unique_import_name(name);
-                    let ret = self
-                        .component
-                        .import(&name, ComponentTypeRef::Type(TypeBounds::Eq(idx)));
+                    let ret = self.component.import(
+                        &name,
+                        ComponentTypeRef::Type(TypeBounds::Eq(idx)),
+                        ImportKind::Interface,
+                    );
                     self.imports.insert(name, ret);
                     Some(ret)
                 }
@@ -1038,9 +1046,11 @@ impl<'a> EncodingState<'a> {
                     panic!("resources should already be exported")
                 } else {
                     let name = self.unique_import_name(name);
-                    let ret = self
-                        .component
-                        .import(&name, ComponentTypeRef::Type(TypeBounds::SubResource));
+                    let ret = self.component.import(
+                        &name,
+                        ComponentTypeRef::Type(TypeBounds::SubResource),
+                        ImportKind::Interface,
+                    );
                     self.imports.insert(name, ret);
                     ret
                 }
