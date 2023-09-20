@@ -1,7 +1,7 @@
 //! Definitions of name-related helpers and newtypes, primarily for the
 //! component model.
 
-use crate::{ComponentExternName, Result};
+use crate::{ComponentExportName, ComponentImportName, Result};
 use semver::Version;
 use std::borrow::Borrow;
 use std::fmt;
@@ -222,7 +222,73 @@ pub struct KebabName {
     parsed: ParsedKebabName,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Clone, Hash)]
+struct At {
+    index: u32,
+    semver: Semver,
+}
+
+#[derive(Debug, Clone, Hash)]
+/// Pinned version or semver range
+pub enum Semver {
+    /// pinned version
+    Semver(Version),
+    /// semver range
+    SemverRange(SemverRange),
+}
+
+impl PartialEq for Semver {
+    fn eq(&self, other: &Semver) -> bool {
+        match self {
+            Self::Semver(version) => match other {
+                Semver::Semver(other_version) => version == other_version,
+                Semver::SemverRange(_) => false,
+            },
+            Self::SemverRange(version_range) => match other {
+                Semver::Semver(_) => false,
+                Semver::SemverRange(other_range) => version_range == other_range,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Hash)]
+/// Potential semver range specifications
+pub enum SemverRange {
+    /// All versions
+    All,
+    /// Upper Bound
+    Upper(Version),
+    /// Lower Bound
+    Lower(Version),
+    /// Upper and Lower Bound
+    Both((Version, Version)),
+}
+
+impl PartialEq for SemverRange {
+    fn eq(&self, other: &SemverRange) -> bool {
+        match self {
+            SemverRange::All => match other {
+                SemverRange::All => true,
+                _ => false,
+            },
+            SemverRange::Upper(ua) => match other {
+                SemverRange::Upper(ub) => ua == ub,
+                _ => false,
+            },
+            SemverRange::Lower(la) => match other {
+                SemverRange::Lower(lb) => la == lb,
+                _ => false,
+            },
+            SemverRange::Both((la, ua)) => match other {
+                SemverRange::Both((lb, ub)) => la == lb && ua == ub,
+                _ => false,
+            },
+        }
+    }
+}
+
+#[derive(Clone)]
 enum ParsedKebabName {
     Normal,
     Constructor,
@@ -232,10 +298,10 @@ enum ParsedKebabName {
     Static {
         dot: u32,
     },
-    Id {
+    RegistryId {
         colon: u32,
-        slash: u32,
-        at: Option<u32>,
+        slash: Option<u32>,
+        at: Option<At>,
     },
 }
 
@@ -260,11 +326,11 @@ pub enum KebabNameKind<'a> {
     },
     /// `wasi:http/types@2.0`
     #[allow(missing_docs)]
-    Id {
+    RegistryId {
         namespace: &'a KebabStr,
         package: &'a KebabStr,
-        interface: &'a KebabStr,
-        version: Option<Version>,
+        interface: Option<&'a KebabStr>,
+        version: Option<Semver>,
     },
 }
 
@@ -275,20 +341,21 @@ const STATIC: &str = "[static]";
 impl KebabName {
     /// Attempts to parse `name` as a kebab name, returning `None` if it's not
     /// valid.
-    pub fn new(name: ComponentExternName<'_>, offset: usize) -> Result<KebabName> {
+    pub fn from_export(name: ComponentExportName<'_>, offset: usize) -> Result<KebabName> {
         let validate_kebab = |s: &str| {
-            if KebabStr::new(s).is_none() {
-                bail!(offset, "`{s}` is not in kebab case")
-            } else {
-                Ok(())
-            }
+            // if KebabStr::new(s).is_none() {
+            //     bail!(offset, "`{s}` is not in kebab case")
+            // } else {
+            Ok(())
+            // }
         };
         let find = |s: &str, c: char| match s.find(c) {
             Some(i) => Ok(i),
             None => bail!(offset, "failed to find `{c}` character"),
         };
+
         let parsed = match name {
-            ComponentExternName::Kebab(s) => {
+            ComponentExportName::Kebab(s) => {
                 if let Some(s) = s.strip_prefix(CONSTRUCTOR) {
                     validate_kebab(s)?;
                     ParsedKebabName::Constructor
@@ -307,7 +374,7 @@ impl KebabName {
                     ParsedKebabName::Normal
                 }
             }
-            ComponentExternName::Interface(s) => {
+            ComponentExportName::Interface(s) => {
                 let colon = find(s, ':')?;
                 validate_kebab(&s[..colon])?;
                 let slash = find(s, '/')?;
@@ -316,14 +383,270 @@ impl KebabName {
                 validate_kebab(&s[slash + 1..at.unwrap_or(s.len())])?;
                 if let Some(at) = at {
                     let version = &s[at + 1..];
-                    if let Err(e) = version.parse::<Version>() {
-                        bail!(offset, "failed to parse version: {e}")
+                    let version = version.parse::<Version>();
+                    match version {
+                        Ok(ver) => ParsedKebabName::RegistryId {
+                            colon: colon as u32,
+                            slash: Some(slash as u32),
+                            at: Some(At {
+                                index: at as u32,
+                                semver: Semver::Semver(ver),
+                            }),
+                        },
+                        Err(e) => {
+                            bail!(offset, "failed to parse version: {e}")
+                        }
+                    }
+                } else {
+                    ParsedKebabName::RegistryId {
+                        colon: colon as u32,
+                        slash: Some(slash as u32),
+                        at: None,
                     }
                 }
-                ParsedKebabName::Id {
-                    colon: colon as u32,
-                    slash: slash as u32,
-                    at: at.map(|i| i as u32),
+            }
+        };
+        Ok(KebabName {
+            raw: name.as_str().to_string(),
+            parsed,
+        })
+    }
+
+    /// Attempts to parse `name` as a kebab name, returning `None` if it's not
+    /// valid.
+    pub fn from_import(name: ComponentImportName<'_>, offset: usize) -> Result<KebabName> {
+        let validate_kebab = |s: &str| {
+            // if KebabStr::new(s).is_none() {
+            // bail!(offset, "`{s}` is not in kebab case")
+            // } else {
+            Ok(())
+            // }
+        };
+        let find = |s: &str, c: char| match s.find(c) {
+            Some(i) => Ok(i),
+            None => bail!(offset, "failed to find `{c}` character"),
+        };
+        let maybe_find = |s: &str, c: char| match s.find(c) {
+            Some(i) => Some(i),
+            None => None,
+        };
+        let validate_version_range = |s: &str| match s.chars().nth(0).unwrap() {
+            '*' => Ok(SemverRange::All),
+            '{' => match s.chars().nth(1).unwrap() {
+                '>' => {
+                    if s.chars().nth(2).unwrap() == '=' {
+                        let space = maybe_find(s, ' ');
+                        if let Some(sp) = space {
+                            match s[3..sp].parse::<Version>() {
+                                Ok(lower_ver) => {
+                                    let upper = &s[sp + 1..s.len() - 1];
+                                    match upper.chars().nth(0).unwrap() {
+                                        '<' => {
+                                            match upper[1..].parse::<Version>() {
+                                                Ok(upper_ver) => {
+                                                    return Ok(SemverRange::Both((
+                                                        lower_ver, upper_ver,
+                                                    )))
+                                                }
+                                                Err(_) => {
+                                                    bail!(offset, "`{s}` multiple bounds but terminal bound is not upper bound")
+                                                }
+                                            }
+                                          }
+                                          _ => bail!(offset, "`{s}` multiple bounds but terminal bound is not upper bound"),
+                                    }
+                                }
+                                Err(_) => bail!(offset, "`{s}` lower bound is not valid semver"),
+                            }
+                        } else {
+                            let close = find(s, '}')?;
+                            match s[3..close].parse::<Version>() {
+                                Ok(lower) => return Ok(SemverRange::Lower(lower)),
+                                Err(_) => bail!(offset, "`{s}` range has no closing brace"),
+                            }
+                        }
+                    } else {
+                        bail!(offset, "`{s}` lower range bound must be inclusive")
+                    }
+                }
+                '<' => {
+                    let close = find(s, '}')?;
+                    match s[2..close].parse::<Version>() {
+                        Ok(upper) => return Ok(SemverRange::Upper(upper)),
+                        Err(_) => bail!(offset, "`{s}` is not a valid semver range"),
+                    }
+                }
+                _ => bail!(offset, "`{s}` is not a valid semver range"),
+            },
+            _ => bail!(offset, "`{s}` is not a valid semver range"),
+        };
+        let parsed = match name {
+            ComponentImportName::Kebab(s) => {
+                if let Some(s) = s.strip_prefix(CONSTRUCTOR) {
+                    validate_kebab(s)?;
+                    ParsedKebabName::Constructor
+                } else if let Some(s) = s.strip_prefix(METHOD) {
+                    let dot = find(s, '.')?;
+                    validate_kebab(&s[..dot])?;
+                    validate_kebab(&s[dot + 1..])?;
+                    ParsedKebabName::Method { dot: dot as u32 }
+                } else if let Some(s) = s.strip_prefix(STATIC) {
+                    let dot = find(s, '.')?;
+                    validate_kebab(&s[..dot])?;
+                    validate_kebab(&s[dot + 1..])?;
+                    ParsedKebabName::Static { dot: dot as u32 }
+                } else {
+                    validate_kebab(s)?;
+                    ParsedKebabName::Normal
+                }
+            }
+            ComponentImportName::Interface(s) => {
+                let colon = find(s, ':')?;
+                validate_kebab(&s[..colon])?;
+                let slash = find(s, '/')?;
+                let at = s[slash..].find('@').map(|i| i + slash);
+                validate_kebab(&s[colon + 1..slash])?;
+                validate_kebab(&s[slash + 1..at.unwrap_or(s.len())])?;
+                if let Some(at) = at {
+                    let version = &s[at + 1..];
+                    let version = version.parse::<Version>();
+                    match version {
+                        Ok(ver) => ParsedKebabName::RegistryId {
+                            colon: colon as u32,
+                            slash: Some(slash as u32),
+                            at: Some(At {
+                                index: at as u32,
+                                semver: Semver::Semver(ver),
+                            }),
+                        },
+                        Err(e) => {
+                            bail!(offset, "failed to parse version: {e}")
+                        }
+                    }
+                } else {
+                    ParsedKebabName::RegistryId {
+                        colon: colon as u32,
+                        slash: Some(slash as u32),
+                        at: None,
+                    }
+                }
+            }
+            ComponentImportName::Url((name, _, _)) => {
+                validate_kebab(name)?;
+                ParsedKebabName::Normal
+            }
+            ComponentImportName::Relative((name, _, _)) => {
+                validate_kebab(name)?;
+                ParsedKebabName::Normal
+            }
+            ComponentImportName::Naked((name, _)) => {
+                validate_kebab(name)?;
+                ParsedKebabName::Normal
+            }
+            ComponentImportName::Locked((name, _)) => {
+                let colon = find(name, ':')?;
+                validate_kebab(&name[..colon])?;
+                let slash = maybe_find(name, '/');
+                if let Some(sl) = slash {
+                    let at = name[sl..].find('@').map(|i| i + sl);
+                    validate_kebab(&name[colon + 1..sl])?;
+                    if let Some(at) = at {
+                        validate_kebab(&name[sl + 1..at])?;
+                        let version_string = &name[at + 1..];
+                        let version = version_string.parse::<Version>();
+                        match version {
+                            Ok(ver) => ParsedKebabName::RegistryId {
+                                colon: colon as u32,
+                                slash: Some(sl as u32),
+                                at: Some(At {
+                                    index: at as u32,
+                                    semver: Semver::Semver(ver),
+                                }),
+                            },
+                            Err(e) => {
+                                bail!(offset, "failed to parse version: {e}")
+                            }
+                        }
+                    } else {
+                        ParsedKebabName::RegistryId {
+                            colon: colon as u32,
+                            slash: Some(sl as u32),
+                            at: None,
+                        }
+                    }
+                } else {
+                    let at = name[colon..].find('@').map(|i| i + colon);
+                    if let Some(at) = at {
+                        validate_kebab(&name[colon + 1..at])?;
+                        let version_string = &name[at + 1..].replace(['{', '}', '>', '='], "");
+                        let version = version_string.parse::<Version>();
+                        match version {
+                            Ok(ver) => ParsedKebabName::RegistryId {
+                                colon: colon as u32,
+                                slash: None,
+                                at: Some(At {
+                                    index: at as u32,
+                                    semver: Semver::Semver(ver),
+                                }),
+                            },
+                            Err(e) => {
+                                bail!(offset, "failed to parse version: {e}")
+                            }
+                        }
+                    } else {
+                        ParsedKebabName::RegistryId {
+                            colon: colon as u32,
+                            slash: None,
+                            at: None,
+                        }
+                    }
+                }
+            }
+            ComponentImportName::Unlocked(name) => {
+                let colon = find(name, ':')?;
+                validate_kebab(&name[..colon])?;
+                let slash = maybe_find(name, '/');
+                if let Some(sl) = slash {
+                    let at = name[sl..].find('@').map(|i| i + sl);
+                    validate_kebab(&name[colon + 1..sl])?;
+                    if let Some(at) = at {
+                        validate_kebab(&name[sl + 1..at])?;
+                        let version_string = validate_version_range(&name[at + 1..])?;
+                        ParsedKebabName::RegistryId {
+                            colon: colon as u32,
+                            slash: Some(sl as u32),
+                            at: Some(At {
+                                index: at as u32,
+                                semver: Semver::SemverRange(version_string),
+                            }),
+                        }
+                    } else {
+                        ParsedKebabName::RegistryId {
+                            colon: colon as u32,
+                            slash: Some(sl as u32),
+                            at: None,
+                        }
+                    }
+                } else {
+                    let at = name[colon..].find('@').map(|i| i + colon);
+                    if let Some(at) = at {
+                        validate_kebab(&name[colon + 1..at])?;
+                        let version_string = validate_version_range(&name[at + 1..])?;
+                        ParsedKebabName::RegistryId {
+                            colon: colon as u32,
+                            slash: None,
+                            at: Some(At {
+                                index: at as u32,
+                                semver: Semver::SemverRange(version_string),
+                            }),
+                        }
+                    } else {
+                        ParsedKebabName::RegistryId {
+                            colon: colon as u32,
+                            slash: None,
+                            at: None,
+                        }
+                    }
                 }
             }
         };
@@ -335,7 +658,7 @@ impl KebabName {
 
     /// Returns the [`KebabNameKind`] corresponding to this name.
     pub fn kind(&self) -> KebabNameKind<'_> {
-        match self.parsed {
+        match &self.parsed {
             ParsedKebabName::Normal => KebabNameKind::Normal(KebabStr::new_unchecked(&self.raw)),
             ParsedKebabName::Constructor => {
                 let kebab = &self.raw[CONSTRUCTOR.len()..];
@@ -343,26 +666,37 @@ impl KebabName {
             }
             ParsedKebabName::Method { dot } => {
                 let dotted = &self.raw[METHOD.len()..];
-                let resource = KebabStr::new_unchecked(&dotted[..dot as usize]);
-                let name = KebabStr::new_unchecked(&dotted[dot as usize + 1..]);
+                let resource = KebabStr::new_unchecked(&dotted[..*dot as usize]);
+                let name = KebabStr::new_unchecked(&dotted[*dot as usize + 1..]);
                 KebabNameKind::Method { resource, name }
             }
             ParsedKebabName::Static { dot } => {
                 let dotted = &self.raw[METHOD.len()..];
-                let resource = KebabStr::new_unchecked(&dotted[..dot as usize]);
-                let name = KebabStr::new_unchecked(&dotted[dot as usize + 1..]);
+                let resource = KebabStr::new_unchecked(&dotted[..*dot as usize]);
+                let name = KebabStr::new_unchecked(&dotted[*dot as usize + 1..]);
                 KebabNameKind::Static { resource, name }
             }
-            ParsedKebabName::Id { colon, slash, at } => {
-                let colon = colon as usize;
-                let slash = slash as usize;
-                let at = at.map(|i| i as usize);
+            ParsedKebabName::RegistryId { colon, slash, at } => {
+                let colon = *colon as usize;
+                let package = if let Some(sl) = slash {
+                    KebabStr::new_unchecked(&self.raw[colon + 1..*sl as usize])
+                } else if let Some(at) = at {
+                    KebabStr::new_unchecked(&self.raw[colon + 1..at.index as usize])
+                } else {
+                    KebabStr::new_unchecked(&self.raw[colon + 1..])
+                };
+                let interface = if let Some(sl) = slash {
+                    Some(KebabStr::new_unchecked(&self.raw[*sl as usize + 1..]))
+                } else {
+                    None
+                };
+                let version = if let Some(at) = at {
+                    Some(at.semver.clone())
+                } else {
+                    None
+                };
                 let namespace = KebabStr::new_unchecked(&self.raw[..colon]);
-                let package = KebabStr::new_unchecked(&self.raw[colon + 1..slash]);
-                let interface =
-                    KebabStr::new_unchecked(&self.raw[slash + 1..at.unwrap_or(self.raw.len())]);
-                let version = at.map(|i| Version::parse(&self.raw[i + 1..]).unwrap());
-                KebabNameKind::Id {
+                KebabNameKind::RegistryId {
                     namespace,
                     package,
                     interface,
@@ -427,7 +761,7 @@ impl Hash for KebabNameKind<'_> {
                 resource.hash(hasher);
                 name.hash(hasher);
             }
-            KebabNameKind::Id {
+            KebabNameKind::RegistryId {
                 namespace,
                 package,
                 interface,
@@ -496,22 +830,21 @@ impl PartialEq for KebabNameKind<'_> {
 
             (KebabNameKind::Method { .. }, _) => false,
             (KebabNameKind::Static { .. }, _) => false,
-
             (
-                KebabNameKind::Id {
+                KebabNameKind::RegistryId {
                     namespace: an,
                     package: ap,
                     interface: ai,
                     version: av,
                 },
-                KebabNameKind::Id {
+                KebabNameKind::RegistryId {
                     namespace: bn,
                     package: bp,
                     interface: bi,
                     version: bv,
                 },
             ) => an == bn && ap == bp && ai == bi && av == bv,
-            (KebabNameKind::Id { .. }, _) => false,
+            (KebabNameKind::RegistryId { .. }, _) => false,
         }
     }
 }
@@ -524,7 +857,7 @@ mod tests {
     use std::collections::HashSet;
 
     fn parse_kebab_name(s: &str) -> Option<KebabName> {
-        KebabName::new(ComponentExternName::Kebab(s), 0).ok()
+        KebabName::from_import(ComponentImportName::Kebab(s), 0).ok()
     }
 
     #[test]

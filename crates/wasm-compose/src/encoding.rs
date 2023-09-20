@@ -271,7 +271,7 @@ impl<'a> TypeEncoder<'a> {
                 Encodable::Component(c) => c,
                 _ => unreachable!(),
             };
-            c.import(name, ty);
+            c.import(name, ty, ImportKind::Unlocked);
         }
 
         for (name, ty) in exports {
@@ -1028,7 +1028,8 @@ impl<'a> ImportMap<'a> {
             assert!(self
                 .0
                 .insert(
-                    entry.component.name.to_kebab_case().into(),
+                    entry.component.name.clone().into(),
+                    // entry.component.name.to_kebab_case().into(),
                     ImportMapEntry::Component(&entry.component),
                 )
                 .is_none());
@@ -1411,7 +1412,12 @@ impl<'a> CompositionGraphEncoder<'a> {
         component: &'a crate::graph::Component,
     ) -> u32 {
         let type_index = self.define_component_type(encoded, component);
-        let index = self.import(encoded, name, ComponentTypeRef::Component(type_index));
+        let index = self.import(
+            encoded,
+            name,
+            ComponentTypeRef::Component(type_index),
+            ImportKind::Locked,
+        );
 
         assert!(self
             .encoded_components
@@ -1436,7 +1442,7 @@ impl<'a> CompositionGraphEncoder<'a> {
             Encodable::Builder(builder) => builder,
             _ => unreachable!(),
         };
-        self.import(encoded, name, ty)
+        self.import(encoded, name, ty, ImportKind::Unlocked)
     }
 
     fn encode_instance_import(
@@ -1475,7 +1481,12 @@ impl<'a> CompositionGraphEncoder<'a> {
             _ => unreachable!(),
         };
         let index = encoded.type_instance(&instance_type);
-        self.import(encoded, name, ComponentTypeRef::Instance(index))
+        self.import(
+            encoded,
+            name,
+            ComponentTypeRef::Instance(index),
+            ImportKind::Unlocked,
+        )
     }
 
     fn encode_instantiations(&mut self, encoded: &mut ComponentBuilder) -> Result<()> {
@@ -1660,9 +1671,15 @@ impl<'a> CompositionGraphEncoder<'a> {
         args
     }
 
-    fn import(&mut self, encoded: &mut ComponentBuilder, name: &str, ty: ComponentTypeRef) -> u32 {
+    fn import(
+        &mut self,
+        encoded: &mut ComponentBuilder,
+        name: &str,
+        ty: ComponentTypeRef,
+        import_kind: ImportKind,
+    ) -> u32 {
         log::debug!("importing {ty:?} with `{name}` in composed component");
-        encoded.import(name, ty)
+        encoded.import(name, ty, import_kind)
     }
 
     fn alias(
