@@ -5,7 +5,7 @@ use wasm_encoder::{
     CanonicalFunctionSection, ComponentAliasSection, ComponentDefinedTypeEncoder,
     ComponentExportSection, ComponentImportSection, ComponentInstanceSection, ComponentNameSection,
     ComponentSection, ComponentSectionId, ComponentStartSection, ComponentTypeEncoder,
-    ComponentTypeSection, CoreTypeEncoder, CoreTypeSection, InstanceSection, NameMap,
+    ComponentTypeSection, CoreTypeEncoder, CoreTypeSection, ImportKind, InstanceSection, NameMap,
     NestedComponentSection, RawSection, SectionId,
 };
 
@@ -356,6 +356,7 @@ impl<'a> Encoder<'a> {
         self.imports.import(
             wasm_encoder::ComponentImportName::from(import.name),
             (&import.item.kind).into(),
+            ImportKind::Locked,
         );
         self.flush(Some(self.imports.id()));
     }
@@ -833,6 +834,7 @@ impl From<&ComponentType<'_>> for wasm_encoder::ComponentType {
                     encoded.import(
                         wasm_encoder::ComponentImportName::from(i.name),
                         (&i.item.kind).into(),
+                        ImportKind::Locked,
                     );
                 }
                 ComponentTypeDecl::Export(e) => {

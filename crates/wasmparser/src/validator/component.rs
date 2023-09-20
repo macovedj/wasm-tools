@@ -2483,7 +2483,7 @@ impl ComponentState {
         let mut field_map = IndexMap::with_capacity(fields.len());
 
         if fields.is_empty() {
-            bail!(offset, "record type must have at least one field");
+            // bail!(offset, "record type must have at least one field");
         }
 
         for (name, ty) in fields {

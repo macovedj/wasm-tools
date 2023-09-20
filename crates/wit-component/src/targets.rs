@@ -1,6 +1,6 @@
 use crate::encoding::encode_world;
 use anyhow::{Context, Result};
-use wasm_encoder::{ComponentBuilder, ComponentExportKind, ComponentTypeRef};
+use wasm_encoder::{ComponentBuilder, ComponentExportKind, ComponentTypeRef, ImportKind};
 use wasmparser::{Validator, WasmFeatures};
 use wit_parser::{Resolve, WorldId};
 
@@ -22,6 +22,7 @@ pub fn targets(resolve: &Resolve, world: WorldId, component_to_test: &[u8]) -> R
         component.import(
             &resolve.worlds[world].name,
             ComponentTypeRef::Component(component_ty_idx),
+            ImportKind::Interface,
         );
         root_component.component(component)
     };

@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use super::*;
-use wasm_encoder::{ComponentExportKind, ComponentOuterAliasKind, ExportKind};
+use wasm_encoder::{ComponentExportKind, ComponentOuterAliasKind, ExportKind, ImportKind};
 use wasmparser::names::KebabStr;
 
 impl Component {
@@ -73,7 +73,11 @@ impl ImportSection {
     fn encode(&self, component: &mut wasm_encoder::Component) {
         let mut sec = wasm_encoder::ComponentImportSection::new();
         for imp in &self.imports {
-            sec.import(wasm_encoder::ComponentImportName::Kebab(&imp.name), imp.ty);
+            sec.import(
+                wasm_encoder::ComponentImportName::Kebab(&imp.name),
+                imp.ty,
+                ImportKind::Locked,
+            );
         }
         component.section(&sec);
     }
@@ -183,6 +187,7 @@ impl Type {
                             enc_comp_ty.import(
                                 wasm_encoder::ComponentImportName::Kebab(&imp.name),
                                 imp.ty,
+                                ImportKind::Locked,
                             );
                         }
                         ComponentTypeDef::CoreType(ty) => {

@@ -255,7 +255,7 @@ impl ComponentBuilder {
     }
 
     /// Imports a new item into this component with the `name` and `ty` specified.
-    pub fn import(&mut self, name: &str, ty: ComponentTypeRef) -> u32 {
+    pub fn import(&mut self, name: &str, ty: ComponentTypeRef, import_kind: ImportKind) -> u32 {
         let ret = match &ty {
             ComponentTypeRef::Instance(_) => inc(&mut self.instances),
             ComponentTypeRef::Func(_) => inc(&mut self.funcs),
@@ -264,7 +264,7 @@ impl ComponentBuilder {
             ComponentTypeRef::Module(_) => inc(&mut self.core_modules),
             ComponentTypeRef::Value(_) => inc(&mut self.values),
         };
-        self.imports().import(name, ty);
+        self.imports().import(name, ty, import_kind);
         ret
     }
 

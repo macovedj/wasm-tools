@@ -110,7 +110,11 @@ impl Encoder<'_> {
                 encoder.outer.ty().instance(&instance);
                 encoder.import_map.insert(interface, encoder.instances);
                 encoder.instances += 1;
-                encoder.outer.import(&name, ComponentTypeRef::Instance(idx));
+                encoder.outer.import(
+                    &name,
+                    ComponentTypeRef::Instance(idx),
+                    ImportKind::Interface,
+                );
             }
         }
         encoder.interface = None;
@@ -263,8 +267,11 @@ impl<'a> ValtypeEncoder<'a> for InterfaceEncoder<'a> {
             None => {
                 let ret = self.outer.type_count();
                 if self.import_types {
-                    self.outer
-                        .import(name, ComponentTypeRef::Type(TypeBounds::Eq(index)));
+                    self.outer.import(
+                        name,
+                        ComponentTypeRef::Type(TypeBounds::Eq(index)),
+                        ImportKind::Interface,
+                    );
                 } else {
                     self.outer
                         .export(name, ComponentTypeRef::Type(TypeBounds::Eq(index)));
@@ -283,7 +290,7 @@ impl<'a> ValtypeEncoder<'a> for InterfaceEncoder<'a> {
             }
             None => {
                 if self.import_types {
-                    self.outer.import(name, type_ref);
+                    self.outer.import(name, type_ref, ImportKind::Interface);
                 } else {
                     self.outer.export(name, type_ref);
                 }
@@ -378,7 +385,7 @@ pub fn encode_world(resolve: &Resolve, world_id: WorldId) -> Result<ComponentTyp
                 continue;
             }
         };
-        component.outer.import(&name, ty);
+        component.outer.import(&name, ty, ImportKind::Interface);
     }
     // Encode the exports
     for (name, export) in world.exports.iter() {
