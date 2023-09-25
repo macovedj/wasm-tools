@@ -1866,7 +1866,6 @@ impl Printer {
             self.newline(offset);
             self.print_component_import(state, &import, true)?;
         }
-
         Ok(())
     }
 
@@ -1884,16 +1883,61 @@ impl Printer {
         Ok(())
     }
 
-    fn print_component_import_name(&mut self, name: ComponentExternName<'_>) -> Result<()> {
+    fn print_component_import_name(&mut self, name: ComponentImportName<'_>) -> Result<()> {
         match name {
-            ComponentExternName::Kebab(s) => self.print_str(s),
-            ComponentExternName::Interface(s) => {
+            ComponentImportName::Kebab(s, integrity) => {
+                self.print_str(s)?;
+                self.print_opt_integrity(integrity)?;
+                Ok(())
+            }
+            ComponentImportName::Interface(s) => {
                 self.start_group("interface ");
                 self.print_str(s)?;
                 self.end_group();
                 Ok(())
             }
+            ComponentImportName::Url(name, location, integrity) => {
+                self.print_str(name)?;
+                self.result.push(' ');
+                self.start_group("url ");
+                self.print_str(location)?;
+                self.print_opt_integrity(integrity)?;
+                self.end_group();
+                Ok(())
+            }
+            ComponentImportName::Relative(name, location, integrity) => {
+                self.print_str(name)?;
+                self.result.push(' ');
+                self.start_group("relative-url ");
+                self.print_str(location)?;
+                self.print_opt_integrity(integrity)?;
+                self.end_group();
+                Ok(())
+            }
+            ComponentImportName::Locked(name, integrity) => {
+                self.start_group("locked-dep ");
+                self.print_str(name)?;
+                self.print_opt_integrity(integrity)?;
+                self.end_group();
+                Ok(())
+            }
+            ComponentImportName::Unlocked(name) => {
+                self.start_group("unlocked-dep ");
+                self.print_str(name)?;
+                self.end_group();
+                Ok(())
+            }
         }
+    }
+
+    fn print_opt_integrity(&mut self, integrity: Option<&str>) -> Result<()> {
+        if let Some(integrity) = integrity {
+            self.result.push(' ');
+            self.start_group("integrity ");
+            self.print_str(integrity)?;
+            self.end_group();
+        }
+        Ok(())
     }
 
     fn print_component_import_ty(

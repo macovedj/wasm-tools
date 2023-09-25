@@ -1,0 +1,22 @@
+(component
+  (import "x1" (func))
+  (import "x2" (integrity "") (func))
+  (import "x3" (url "") (func))
+  (import "x4" (url "" (integrity "")) (func))
+  (import "x5" (relative-url "") (func))
+  (import "x6" (relative-url "" (integrity "")) (func))
+  (import (interface "a:b/x1") (func))
+  (import (locked-dep "a:b/x2") (func))
+  (import (locked-dep "a:b/x3" (integrity "")) (func))
+  (import (unlocked-dep "a:b/x4") (func))
+)
+
+(component
+  (import (locked-dep "moo:bar@1.0.0" (integrity "asdlfkj")) (func))
+  (import (locked-dep "moo:bar" (integrity "asdlfkj")) (func))
+  (import (unlocked-dep "goo:bar@{>=1.0.0 <3.0.0}") (func))
+  (import (unlocked-dep "goo:bar@{<3.0.0}") (func))
+  (import (unlocked-dep "goo:bar@{>=1.0.0}") (func))
+  (import (unlocked-dep "goo:bar@*") (func))
+  (import (unlocked-dep "goo:bar") (func))
+)

@@ -9,7 +9,7 @@ pub struct ComponentImport<'a> {
     /// Where this `import` was defined
     pub span: Span,
     /// The name of the item being imported.
-    pub name: ComponentExternName<'a>,
+    pub name: ComponentImportName<'a>,
     /// The item that's being imported.
     pub item: ItemSig<'a>,
 }
@@ -25,22 +25,108 @@ impl<'a> Parse<'a> for ComponentImport<'a> {
 
 /// The different ways an import can be named.
 #[derive(Debug, Copy, Clone)]
-pub enum ComponentExternName<'a> {
+pub enum ComponentImportName<'a> {
+    /// This is a kebab-named import where a top-level name is assigned.
+    Kebab(&'a str, Option<&'a str>),
+    /// This is an interface import where the string is an ID.
+    Interface(&'a str),
+    /// External Url
+    Url(&'a str, &'a str, Option<&'a str>),
+    /// Relative path
+    Relative(&'a str, &'a str, Option<&'a str>),
+    /// Locked Registry Import
+    Locked(&'a str, Option<&'a str>),
+    /// Unocked Registry Import
+    Unlocked(&'a str),
+}
+
+/// The different ways an export can be named.
+#[derive(Debug, Copy, Clone)]
+pub enum ComponentExportName<'a> {
     /// This is a kebab-named import where a top-level name is assigned.
     Kebab(&'a str),
     /// This is an interface import where the string is an ID.
     Interface(&'a str),
 }
 
-impl<'a> Parse<'a> for ComponentExternName<'a> {
+impl<'a> Parse<'a> for ComponentImportName<'a> {
+    fn parse(parser: Parser<'a>) -> Result<Self> {
+        // Parse the various forms of component imports:
+        //
+        //  (import "kebab" (func ...))
+        //  (import "kebab" (integrity "xxx") (func ...))
+        //  (import "url" (url "..." (integrity "...")) (func ...))
+        //  (import "relative-url" (relative-url "..." (integrity "...")) (func ...))
+        //  (import (interface "a:b/c") (func ...))
+        //  (import (locked-dep "a:b/c@1.2.3" (integrity "xx")) (func ...))
+        //  (import (unlocked-dep "a:b/c@{<1.2.3}") (func ...))
+
+        if parser.peek::<LParen>()? {
+            parser.parens(|parser| {
+                let mut l = parser.lookahead1();
+                if l.peek::<kw::interface>()? {
+                    parser.parse::<kw::interface>()?;
+                    Ok(ComponentImportName::Interface(parser.parse()?))
+                } else if l.peek::<kw::locked_dep>()? {
+                    parser.parse::<kw::locked_dep>()?;
+                    let name = parser.parse()?;
+                    let integrity = parse_opt_integrity(parser)?;
+                    Ok(ComponentImportName::Locked(name, integrity))
+                } else if l.peek::<kw::unlocked_dep>()? {
+                    parser.parse::<kw::unlocked_dep>()?;
+                    let name = parser.parse()?;
+                    Ok(ComponentImportName::Unlocked(name))
+                } else {
+                    Err(l.error())
+                }
+            })
+        } else {
+            let name = parser.parse()?;
+            if parser.peek2::<kw::url>()? {
+                parser.parens(|p| {
+                    p.parse::<kw::url>()?;
+                    let location = p.parse()?;
+                    let integrity = parse_opt_integrity(p)?;
+                    Ok(ComponentImportName::Url(name, location, integrity))
+                })
+            } else if parser.peek2::<kw::relative_url>()? {
+                parser.parens(|p| {
+                    p.parse::<kw::relative_url>()?;
+                    let location = p.parse()?;
+                    let integrity = parse_opt_integrity(p)?;
+                    Ok(ComponentImportName::Relative(name, location, integrity))
+                })
+            } else {
+                let integrity = parse_opt_integrity(parser)?;
+                Ok(ComponentImportName::Kebab(name, integrity))
+            }
+        }
+    }
+}
+
+fn parse_opt_integrity<'a>(parser: Parser<'a>) -> Result<Option<&'a str>> {
+    if !parser.peek2::<kw::integrity>()? {
+        return Ok(None);
+    }
+    parser.parens(|p| {
+        p.parse::<kw::integrity>()?;
+        p.parse()
+    })
+}
+
+impl<'a> Parse<'a> for ComponentExportName<'a> {
     fn parse(parser: Parser<'a>) -> Result<Self> {
         if parser.peek::<LParen>()? {
-            Ok(ComponentExternName::Interface(parser.parens(|p| {
-                p.parse::<kw::interface>()?;
-                p.parse()
-            })?))
+            if parser.peek2::<kw::interface>()? {
+                return Ok(ComponentExportName::Interface(parser.parens(|p| {
+                    p.parse::<kw::interface>()?;
+                    p.parse()
+                })?));
+            } else {
+                return Err(parser.error("Unknown Import Kind"));
+            }
         } else {
-            Ok(ComponentExternName::Kebab(parser.parse()?))
+            return Ok(ComponentExportName::Kebab(parser.parse()?));
         }
     }
 }
@@ -159,7 +245,7 @@ impl<'a> Parse<'a> for TypeBounds<'a> {
 #[derive(Debug, Clone)]
 pub struct InlineImport<'a> {
     /// The name of the item being imported.
-    pub name: ComponentExternName<'a>,
+    pub name: ComponentImportName<'a>,
 }
 
 impl<'a> Parse<'a> for InlineImport<'a> {

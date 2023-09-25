@@ -79,7 +79,7 @@ impl<'a> FromReader<'a> for ComponentTypeRef {
 #[derive(Debug, Copy, Clone)]
 pub struct ComponentImport<'a> {
     /// The name of the imported item.
-    pub name: ComponentExternName<'a>,
+    pub name: ComponentImportName<'a>,
     /// The type reference for the import.
     pub ty: ComponentTypeRef,
 }
@@ -111,27 +111,107 @@ pub type ComponentImportSectionReader<'a> = SectionLimited<'a, ComponentImport<'
 /// Represents the name of a component import.
 #[derive(Debug, Copy, Clone)]
 #[allow(missing_docs)]
-pub enum ComponentExternName<'a> {
+pub enum ComponentImportName<'a> {
+    Kebab(&'a str, Option<&'a str>),
+    Interface(&'a str),
+    Url(&'a str, &'a str, Option<&'a str>),
+    Relative(&'a str, &'a str, Option<&'a str>),
+    Locked(&'a str, Option<&'a str>),
+    Unlocked(&'a str),
+}
+
+/// Represents the name of a component export.
+#[derive(Debug, Copy, Clone)]
+#[allow(missing_docs)]
+pub enum ComponentExportName<'a> {
     Kebab(&'a str),
     Interface(&'a str),
 }
 
-impl<'a> ComponentExternName<'a> {
+impl<'a> ComponentImportName<'a> {
     /// Returns the underlying string representing this name.
     pub fn as_str(&self) -> &'a str {
         match self {
-            ComponentExternName::Kebab(name) => name,
-            ComponentExternName::Interface(name) => name,
+            ComponentImportName::Kebab(name, _) => name,
+            ComponentImportName::Interface(name) => name,
+            ComponentImportName::Url(name, _, _) => name,
+            ComponentImportName::Relative(name, _, _) => name,
+            ComponentImportName::Locked(name, _) => name,
+            ComponentImportName::Unlocked(name) => name,
         }
     }
 }
 
-impl<'a> FromReader<'a> for ComponentExternName<'a> {
+impl<'a> ComponentExportName<'a> {
+    /// Returns the underlying string representing this name.
+    pub fn as_str(&self) -> &'a str {
+        match self {
+            ComponentExportName::Kebab(name) => name,
+            ComponentExportName::Interface(name) => name,
+        }
+    }
+}
+impl<'a> FromReader<'a> for ComponentImportName<'a> {
     fn from_reader(reader: &mut BinaryReader<'a>) -> Result<Self> {
-        Ok(match reader.read_u8()? {
-            0x00 => ComponentExternName::Kebab(reader.read()?),
-            0x01 => ComponentExternName::Interface(reader.read()?),
+        let byte1 = reader.read_u8()?;
+        Ok(match byte1 {
+            0x00 => ComponentImportName::Kebab(reader.read()?, None),
+            0x01 => ComponentImportName::Interface(reader.read()?),
+            0x02 => {
+                let name = reader.read()?;
+                let location = reader.read()?;
+                let integrity = read_opt_integrity(reader)?;
+                ComponentImportName::Url(name, location, integrity)
+            }
+            0x03 => {
+                let name = reader.read()?;
+                let location = reader.read()?;
+                let integrity = read_opt_integrity(reader)?;
+                ComponentImportName::Relative(name, location, integrity)
+            }
+            0x04 => {
+                let name = reader.read()?;
+                let integrity = reader.read()?;
+                ComponentImportName::Kebab(name, Some(integrity))
+            }
+            0x05 => {
+                let name = reader.read()?;
+                let integrity = read_opt_integrity(reader)?;
+                ComponentImportName::Locked(name, integrity)
+            }
+            0x06 => {
+                let name = reader.read()?;
+                ComponentImportName::Unlocked(name)
+            }
             x => return reader.invalid_leading_byte(x, "import name"),
         })
+    }
+}
+
+fn read_opt_integrity<'a>(reader: &mut BinaryReader<'a>) -> Result<Option<&'a str>> {
+    match reader.read_u8()? {
+        0x00 => Ok(None),
+        0x01 => Ok(Some(reader.read()?)),
+        x => reader.invalid_leading_byte(x, "optional integrity"),
+    }
+}
+
+impl<'a> FromReader<'a> for ComponentExportName<'a> {
+    fn from_reader(reader: &mut BinaryReader<'a>) -> Result<Self> {
+        let byte1 = reader.read_u8()?;
+        Ok(match byte1 {
+            0x00 => ComponentExportName::Kebab(reader.read()?),
+            0x01 => ComponentExportName::Interface(reader.read()?),
+            x => return reader.invalid_leading_byte(x, "import name"),
+        })
+    }
+}
+
+impl<'a: 'b, 'b> From<ComponentExportName<'a>> for ComponentImportName<'b> {
+    fn from(import: ComponentExportName<'a>) -> ComponentImportName<'b> {
+        match import {
+            ComponentExportName::Kebab(name) => ComponentImportName::Kebab(name, None),
+            ComponentExportName::Interface(name) => ComponentImportName::Interface(name),
+        }
     }
 }
