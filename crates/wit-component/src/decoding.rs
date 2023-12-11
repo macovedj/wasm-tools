@@ -162,8 +162,7 @@ impl ComponentInfoParser {
         Ok(false)
     }
 
-    /// When finished parsing, calling `finalize` returns the `ComponentInfo` result.
-    pub fn finalize(self) -> Result<ComponentInfo> {
+    fn finalize(self) -> Result<ComponentInfo> {
         if !self.done {
             bail!("not done parsing")
         } else {
@@ -172,6 +171,30 @@ impl ComponentInfoParser {
                 externs: self.externs,
                 package_docs: self.package_docs,
             })
+        }
+    }
+
+    /// When finished parsing, calling `decode` returns the `DecodedWasm` result.
+    pub fn decode(self) -> Result<DecodedWasm> {
+        let info = self.finalize()?;
+
+        if let Some(version) = info.is_wit_package() {
+            match version {
+                WitEncodingVersion::V1 => {
+                    log::debug!("decoding a v1 WIT package encoded as wasm");
+                    let (resolve, pkg) = info.decode_wit_v1_package()?;
+                    Ok(DecodedWasm::WitPackage(resolve, pkg))
+                }
+                WitEncodingVersion::V2 => {
+                    log::debug!("decoding a v2 WIT package encoded as wasm");
+                    let (resolve, pkg) = info.decode_wit_v2_package()?;
+                    Ok(DecodedWasm::WitPackage(resolve, pkg))
+                }
+            }
+        } else {
+            log::debug!("inferring the WIT of a concrete component");
+            let (resolve, world) = info.decode_component()?;
+            Ok(DecodedWasm::Component(resolve, world))
         }
     }
 }
