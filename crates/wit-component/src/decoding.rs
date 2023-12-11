@@ -163,7 +163,7 @@ impl ComponentInfoParser {
     }
 
     /// When finished parsing, calling `finalize` returns the `ComponentInfo` result.
-    fn finalize(self) -> Result<ComponentInfo> {
+    pub fn finalize(self) -> Result<ComponentInfo> {
         if !self.done {
             bail!("not done parsing")
         } else {
