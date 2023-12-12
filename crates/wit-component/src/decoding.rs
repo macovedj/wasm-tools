@@ -85,11 +85,22 @@ impl ComponentInfoParser {
 
         // append to buffered data from previous read
         self.buffer.extend_from_slice(data);
+        let mut buf = self.buffer.as_slice();
 
         loop {
-            let chunk = self.parser.parse(&self.buffer, eof)?;
+            let chunk = self.parser.parse(buf, eof)?;
             let (payload, consumed) = match chunk {
                 Chunk::NeedMoreData(_) => {
+                    // prepare buffer for next parse call
+                    if buf.is_empty() {
+                        self.buffer.truncate(0);
+                    } else {
+                        let remaining = buf.len();
+                        let last = self.buffer.len() - remaining;
+                        self.buffer.copy_within(last.., 0);
+                        self.buffer.truncate(remaining);
+                    }
+
                     assert!(!eof); // otherwise an error would be returned
                     return Ok(false);
                 }
@@ -150,7 +161,7 @@ impl ComponentInfoParser {
                         self.done = true;
                         self.stack.truncate(0);
                         self.buffer.truncate(0);
-                        
+
                         return Ok(true);
                     }
                 }
@@ -158,13 +169,7 @@ impl ComponentInfoParser {
             }
 
             // prepare the buffer for the next parse call
-            if consumed < self.buffer.len() {
-                let remaining = self.buffer.len()-consumed;
-                self.buffer.copy_within(consumed.., 0);
-                self.buffer.truncate(remaining);
-            } else {
-                self.buffer.truncate(0);
-            }
+            buf = &buf[consumed..];
         }
     }
 
@@ -214,7 +219,7 @@ impl ComponentInfo {
         // initialize buffer
         let mut buffer = Vec::with_capacity(4096);
         buffer.extend((0..buffer.capacity()).map(|_| 0u8));
-        
+
         loop {
             let n = reader.read(&mut buffer)?;
             let eof = n == 0;
