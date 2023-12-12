@@ -79,87 +79,93 @@ impl ComponentInfoParser {
     ///
     /// Returns `Ok(true)` if parsing is complete and should call `finalize()` method.
     pub fn parse(&mut self, data: &[u8], eof: bool) -> Result<bool> {
-        // check if there is buffered data from previous read
-        let data = if self.buffer.len() > 0 {
-            self.buffer.extend_from_slice(data);
-            self.buffer.as_slice()
-        } else {
-            data
-        };
-
-        let chunk = self.parser.parse(data, eof)?;
-        let (payload, consumed) = match chunk {
-            Chunk::NeedMoreData(_) => {
-                assert!(!eof); // otherwise an error would be returned
-                return Ok(false);
-            }
-
-            Chunk::Parsed { consumed, payload } => (payload, consumed),
-        };
-        match self.validator.payload(&payload)? {
-            ValidPayload::Ok => {}
-            ValidPayload::Parser(_) => self.depth += 1,
-            ValidPayload::End(t) => {
-                self.depth -= 1;
-                if self.depth == 0 {
-                    self.types = Some(t);
-                }
-            }
-            ValidPayload::Func(..) => {}
+        if self.done {
+            bail!("parsed called again after parsing is finished");
         }
 
-        match payload {
-            Payload::ComponentImportSection(s) if self.depth == 1 => {
-                for import in s {
-                    let import = import?;
-                    self.externs.push((
-                        import.name.0.to_string(),
-                        Extern::Import(import.name.0.to_string()),
-                    ));
+        // append to buffered data from previous read
+        self.buffer.extend_from_slice(data);
+
+        loop {
+            let chunk = self.parser.parse(&self.buffer, eof)?;
+            let (payload, consumed) = match chunk {
+                Chunk::NeedMoreData(_) => {
+                    assert!(!eof); // otherwise an error would be returned
+                    return Ok(false);
                 }
-            }
-            Payload::ComponentExportSection(s) if self.depth == 1 => {
-                for export in s {
-                    let export = export?;
-                    self.externs.push((
-                        export.name.0.to_string(),
-                        Extern::Export(DecodingExport {
-                            name: export.name.0.to_string(),
-                            kind: export.kind,
-                            index: export.index,
-                        }),
-                    ));
+
+                Chunk::Parsed { consumed, payload } => (payload, consumed),
+            };
+
+            match self.validator.payload(&payload)? {
+                ValidPayload::Ok => {}
+                ValidPayload::Parser(_) => self.depth += 1,
+                ValidPayload::End(t) => {
+                    self.depth -= 1;
+                    if self.depth == 0 {
+                        self.types = Some(t);
+                    }
                 }
+                ValidPayload::Func(..) => {}
             }
-            Payload::CustomSection(s) if s.name() == PACKAGE_DOCS_SECTION_NAME => {
-                if self.package_docs.is_some() {
-                    bail!("multiple {PACKAGE_DOCS_SECTION_NAME:?} sections");
+
+            match payload {
+                Payload::ComponentImportSection(s) if self.depth == 1 => {
+                    for import in s {
+                        let import = import?;
+                        self.externs.push((
+                            import.name.0.to_string(),
+                            Extern::Import(import.name.0.to_string()),
+                        ));
+                    }
                 }
-                self.package_docs = Some(PackageDocs::decode(s.data())?);
-            }
-            Payload::ModuleSection { parser, .. }
-            | Payload::ComponentSection { parser, .. } => {
-                self.stack.push(self.parser.clone());
-                self.parser = parser.clone();
-            }
-            Payload::End(_) => {
-                if let Some(parent_parser) = self.stack.pop() {
-                    self.parser = parent_parser.clone();
-                } else {
-                    self.done = true;
-                    self.stack.truncate(0);
-                    self.buffer.truncate(0);
-                    
-                    return Ok(true);
+                Payload::ComponentExportSection(s) if self.depth == 1 => {
+                    for export in s {
+                        let export = export?;
+                        self.externs.push((
+                            export.name.0.to_string(),
+                            Extern::Export(DecodingExport {
+                                name: export.name.0.to_string(),
+                                kind: export.kind,
+                                index: export.index,
+                            }),
+                        ));
+                    }
                 }
+                Payload::CustomSection(s) if s.name() == PACKAGE_DOCS_SECTION_NAME => {
+                    if self.package_docs.is_some() {
+                        bail!("multiple {PACKAGE_DOCS_SECTION_NAME:?} sections");
+                    }
+                    self.package_docs = Some(PackageDocs::decode(s.data())?);
+                }
+                Payload::ModuleSection { parser, .. }
+                | Payload::ComponentSection { parser, .. } => {
+                    self.stack.push(self.parser.clone());
+                    self.parser = parser.clone();
+                }
+                Payload::End(_) => {
+                    if let Some(parent_parser) = self.stack.pop() {
+                        self.parser = parent_parser.clone();
+                    } else {
+                        self.done = true;
+                        self.stack.truncate(0);
+                        self.buffer.truncate(0);
+                        
+                        return Ok(true);
+                    }
+                }
+                _ => {}
             }
-            _ => {}
+
+            // prepare the buffer for the next parse call
+            if consumed < self.buffer.len() {
+                let remaining = self.buffer.len()-consumed;
+                self.buffer.copy_within(consumed.., 0);
+                self.buffer.truncate(remaining);
+            } else {
+                self.buffer.truncate(0);
+            }
         }
-
-        // once we're done processing the payload, drain what was processed.
-        self.buffer.drain(..consumed);
-
-        Ok(false)
     }
 
     fn finalize(self) -> Result<ComponentInfo> {
