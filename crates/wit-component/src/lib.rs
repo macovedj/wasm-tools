@@ -22,6 +22,8 @@ pub use encoding::{encode, ComponentEncoder};
 pub use linking::Linker;
 pub use printing::*;
 pub use targets::*;
+/// Prints docs json from wit file
+pub mod docs;
 
 pub mod metadata;
 
