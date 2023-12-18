@@ -4,8 +4,8 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, mem};
 use wit_parser::{
-    Docs, Enum, Field, Flags, Function, FunctionKind, Handle, InterfaceId, Record, Resolve,
-    Result_, Results, Tuple, Type, TypeDefKind, TypeId, TypeOwner, Variant,
+    Docs, Enum, Flags, Function, FunctionKind, Handle, InterfaceId, Record, Resolve, Result_,
+    Results, Tuple, Type, TypeDefKind, TypeId, TypeOwner, Variant,
 };
 
 fn resource_func(f: &Function) -> Option<TypeId> {
@@ -124,213 +124,12 @@ impl DocsPrinter {
         path
     }
 
-    fn print_tuple_type(&mut self, resolve: &Resolve, tuple: &Tuple) -> String {
-        let mut output = String::new();
-        output.push_str("tuple<");
-        for (i, ty) in tuple.types.iter().enumerate() {
-            if i > 0 {
-                output.push_str(", ");
-            }
-            output.push_str(&self.print_type_name(resolve, ty));
-        }
-        output.push_str(">");
-
-        output
-    }
-
-    fn declare_type(&mut self, resolve: &Resolve, ty: &Type) -> DecomposedType {
-        match ty {
-            Type::Bool => DecomposedType {
-                owner: None,
-                name: None,
-                docs: None,
-                val: "bool".to_string(),
-                children: None,
-            },
-            Type::U8 => DecomposedType {
-                owner: None,
-                name: None,
-                docs: None,
-                val: "u8".to_string(),
-                children: None,
-            },
-            Type::U16 => DecomposedType {
-                owner: None,
-                name: None,
-                docs: None,
-                val: "u16".to_string(),
-                children: None,
-            },
-            Type::U32 => DecomposedType {
-                owner: None,
-                name: None,
-                docs: None,
-                val: "u32".to_string(),
-                children: None,
-            },
-            Type::U64 => DecomposedType {
-                owner: None,
-                name: None,
-                docs: None,
-                val: "u64".to_string(),
-                children: None,
-            },
-            Type::S8 => DecomposedType {
-                owner: None,
-                name: None,
-                docs: None,
-                val: "s8".to_string(),
-                children: None,
-            },
-            Type::S16 => DecomposedType {
-                owner: None,
-                name: None,
-                docs: None,
-                val: "s16".to_string(),
-                children: None,
-            },
-            Type::S32 => DecomposedType {
-                owner: None,
-                name: None,
-                docs: None,
-                val: "s32".to_string(),
-                children: None,
-            },
-            Type::S64 => DecomposedType {
-                owner: None,
-                name: None,
-                docs: None,
-                val: "s64".to_string(),
-                children: None,
-            },
-            Type::Float32 => DecomposedType {
-                owner: None,
-                name: None,
-                docs: None,
-                val: "Float32".to_string(),
-                children: None,
-            },
-            Type::Float64 => DecomposedType {
-                owner: None,
-                name: None,
-                docs: None,
-                val: "Float64".to_string(),
-                children: None,
-            },
-            Type::Char => DecomposedType {
-                owner: None,
-                name: None,
-                docs: None,
-                val: "Char".to_string(),
-                children: None,
-            },
-            Type::String => DecomposedType {
-                owner: None,
-                name: None,
-                docs: None,
-                val: "String".to_string(),
-                children: None,
-            },
-            Type::Id(id) => {
-                let ty = &resolve.types[*id];
-                match &ty.kind {
-                    TypeDefKind::Handle(h) => {
-                        unimplemented!()
-                    }
-                    TypeDefKind::Resource => unimplemented!(),
-                    TypeDefKind::Record(Record { fields }) => {
-                        let mut field_tys = Vec::new();
-                        for field in fields {
-                            field_tys.push(self.print_decomposed_type(
-                                Some(field.name.clone()),
-                                resolve,
-                                &field.ty,
-                            ));
-                        }
-                        DecomposedType {
-                            owner: None,
-                            name: None,
-                            docs: ty.docs.contents.clone(),
-                            val: "record".to_string(),
-                            children: Some(field_tys),
-                        }
-                    }
-                    TypeDefKind::Tuple(_) => DecomposedType {
-                        owner: None,
-                        name: None,
-                        docs: None,
-                        val: "".to_string(),
-                        children: None,
-                    },
-                    TypeDefKind::Flags(f) => DecomposedType {
-                        owner: None,
-                        name: None,
-                        docs: None,
-                        val: "".to_string(),
-                        children: None,
-                    },
-                    TypeDefKind::Variant(v) => DecomposedType {
-                        owner: None,
-                        name: None,
-                        docs: None,
-                        val: "".to_string(),
-                        children: None,
-                    },
-                    TypeDefKind::Option(t) => {
-                        //                     // self.declare_option(resolve, ty.name.as_deref(), t)?
-                        unimplemented!()
-                    }
-                    TypeDefKind::Result(r) => {
-                        // self.declare_result(resolve, ty.name.as_deref(), r)
-                        DecomposedType {
-                            owner: None,
-                            name: None,
-                            docs: None,
-                            val: "".to_string(),
-                            children: None,
-                        }
-                    }
-                    // TypeDefKind::Enum(e) => self.declare_enum(ty.name.as_deref(), e)?,
-                    TypeDefKind::Enum(e) => {
-                        // self.declare_enum(ty.name.as_deref(), e),
-                        DecomposedType {
-                            owner: None,
-                            name: None,
-                            docs: None,
-                            val: "".to_string(),
-                            children: None,
-                        }
-                    }
-                    TypeDefKind::List(inner) => {
-                        //                     // self.declare_list(resolve, ty.name.as_deref(), inner)?
-                        unimplemented!()
-                    }
-                    TypeDefKind::Type(inner) => DecomposedType {
-                        owner: None,
-                        name: None,
-                        docs: None,
-                        val: "".to_string(),
-                        children: None,
-                    },
-                    TypeDefKind::Future(_) => todo!("declare future"),
-                    TypeDefKind::Stream(_) => todo!("declare stream"),
-                    TypeDefKind::Unknown => unreachable!(),
-                }
-            }
-        }
-        //     Ok(())
-    }
-
     fn print_resource(&mut self, resolve: &Resolve, id: TypeId, funcs: &[&Function]) -> Resource {
         let mut resource = String::new();
         let ty = &resolve.types[id];
         resource.push_str("resource ");
-        // self.print_name(ty.name.as_ref().expect("resources must be named"));
         resource.push_str(ty.name.as_ref().unwrap());
         if funcs.is_empty() {
-            // self.print_semicolon();
-            // self.output.push_str("\n");
-            // return Ok(());
             resource.push_str(";\n");
             return Resource {
                 name: resource,
@@ -345,12 +144,12 @@ impl DocsPrinter {
                     self.print_docs(&func.docs);
                 }
                 FunctionKind::Method(_) => {
-                    let (def, params, result) = self.print_function(resolve, func);
+                    let (params, result) = self.print_function(resolve, func);
                     let docs = self.print_docs(&func.docs);
                     methods.push(Func {
                         name: func.name.clone(),
                         docs,
-                        def,
+                        // def,
                         params,
                         result,
                     });
@@ -360,15 +159,13 @@ impl DocsPrinter {
                 }
                 FunctionKind::Static(_) => {
                     self.print_docs(&func.docs);
-                    // self.print_name(func.item_name());
                     resource.push_str(func.item_name());
                     resource.push_str(": ");
                     resource.push_str("static ");
                 }
                 FunctionKind::Freestanding => unreachable!(),
             }
-            let (def, _params, _result) = self.print_function(resolve, func);
-            resource.push_str(&def);
+            let (_params, _result) = self.print_function(resolve, func);
             resource.push_str(";\n")
         }
         resource.push_str("}\n");
@@ -385,9 +182,7 @@ impl DocsPrinter {
         owner: TypeOwner,
         types: impl Iterator<Item = (&'a str, TypeId)>,
         resource_funcs: &HashMap<TypeId, Vec<&Function>>,
-    ) -> Types
-// Result<()>
-    {
+    ) -> Types {
         let mut use_decls = Vec::new();
         let mut declared_types = Vec::new();
         let mut decomposed_types = Vec::new();
@@ -413,7 +208,6 @@ impl DocsPrinter {
                                 continue;
                             }
                         }
-                        // dbg!(&other_owner, &name, other_name);
                         types_to_import.push((other_owner, vec![(name, other_name)]));
                         continue;
                     }
@@ -425,14 +219,8 @@ impl DocsPrinter {
         }
 
         // Generate a `use` statement for all imported types.
-        let my_pkg = match owner {
-            TypeOwner::Interface(id) => resolve.interfaces[id].package.unwrap(),
-            TypeOwner::World(id) => resolve.worlds[id].package.unwrap(),
-            TypeOwner::None => unreachable!(),
-        };
         for (owner, tys) in types_to_import {
             self.any_items = true;
-            // write!(&mut self.output, "use ")?;
             let id = match owner {
                 TypeOwner::Interface(id) => id,
                 // it's only possible to import types from interfaces at
@@ -509,6 +297,133 @@ impl DocsPrinter {
                         val: "flags".to_string(),
                         children: Some(flag_types),
                     });
+                }
+                TypeDefKind::Tuple(Tuple { types }) => {
+                    let mut tys = Vec::new();
+                    for ty in types {
+                        // if let Some(ty) = ty {
+                        match ty {
+                            Type::Id(id) => {
+                                let ty = &resolve.types[id];
+                                let child_ty = &resolve.types[id];
+                                let owner = match child_ty.owner {
+                                    TypeOwner::World(_) => todo!(),
+                                    TypeOwner::Interface(id) => &resolve.interfaces[id].name,
+                                    TypeOwner::None => &None,
+                                };
+                                if let Some(name) = child_ty.name.clone() {
+                                    tys.push(DecomposedType {
+                                        owner: owner.clone(),
+                                        name: ty.name.clone(),
+                                        docs: ty.docs.contents.clone(),
+                                        val: name.clone(),
+                                        children: Some(vec![DecomposedType {
+                                            owner: owner.clone(),
+                                            name: None,
+                                            docs: child_ty.docs.contents.clone(),
+                                            val: name,
+                                            children: None,
+                                        }]),
+                                    });
+                                }
+                            }
+                            Type::Bool => {
+                                tys.push(DecomposedType {
+                                    owner: None,
+                                    name: None,
+                                    docs: None,
+                                    val: "bool".to_string(),
+                                    children: None,
+                                });
+                            }
+                            Type::U8 => {
+                                tys.push(DecomposedType {
+                                    owner: None,
+                                    name: None,
+                                    docs: None,
+                                    val: "u8".to_string(),
+                                    children: None,
+                                });
+                            }
+                            Type::U16 => tys.push(DecomposedType {
+                                owner: None,
+                                name: None,
+                                docs: None,
+                                val: "u16".to_string(),
+                                children: None,
+                            }),
+                            Type::U32 => tys.push(DecomposedType {
+                                owner: None,
+                                name: None,
+                                docs: None,
+                                val: "u32".to_string(),
+                                children: None,
+                            }),
+                            Type::U64 => tys.push(DecomposedType {
+                                owner: None,
+                                name: None,
+                                docs: None,
+                                val: "u64".to_string(),
+                                children: None,
+                            }),
+                            Type::S8 => tys.push(DecomposedType {
+                                owner: None,
+                                name: None,
+                                docs: None,
+                                val: "s8".to_string(),
+                                children: None,
+                            }),
+                            Type::S16 => tys.push(DecomposedType {
+                                owner: None,
+                                name: None,
+                                docs: None,
+                                val: "s16".to_string(),
+                                children: None,
+                            }),
+                            Type::S32 => tys.push(DecomposedType {
+                                owner: None,
+                                name: None,
+                                docs: None,
+                                val: "s32".to_string(),
+                                children: None,
+                            }),
+                            Type::S64 => tys.push(DecomposedType {
+                                owner: None,
+                                name: None,
+                                docs: None,
+                                val: "s64".to_string(),
+                                children: None,
+                            }),
+                            Type::Float32 => tys.push(DecomposedType {
+                                owner: None,
+                                name: None,
+                                docs: None,
+                                val: "Float32".to_string(),
+                                children: None,
+                            }),
+                            Type::Float64 => tys.push(DecomposedType {
+                                owner: None,
+                                name: None,
+                                docs: None,
+                                val: "Float64".to_string(),
+                                children: None,
+                            }),
+                            Type::Char => tys.push(DecomposedType {
+                                owner: None,
+                                name: None,
+                                docs: None,
+                                val: "Char".to_string(),
+                                children: None,
+                            }),
+                            Type::String => tys.push(DecomposedType {
+                                owner: None,
+                                name: None,
+                                docs: None,
+                                val: "String".to_string(),
+                                children: None,
+                            }),
+                        }
+                    }
                 }
                 TypeDefKind::Variant(Variant { cases }) => {
                     let mut case_types = Vec::new();
@@ -606,114 +521,20 @@ impl DocsPrinter {
                         &ty,
                     ));
                 }
-                _ => {
-                    let docs = self.print_docs(&resolve.types[id].docs);
-                    let decl = self.declare_type(resolve, &Type::Id(id));
-                    // let decl = self.print_decomposed_type(None, resolve, ty);
-                    let ty = &resolve.types[id];
-                    let name = &ty.name;
-                    if let Some(name) = name {
-                        declared_types.push(DeclaredType {
-                            name: name.to_string(),
-                            docs,
-                            decl: Declaration::Simple(decl),
-                        });
-                    } else {
-                        declared_types.push(DeclaredType {
-                            name: "".to_string(),
-                            docs,
-                            decl: Declaration::Simple(decl),
-                        });
-                    }
-                } // }
+                TypeDefKind::Handle(_) => todo!(),
+                TypeDefKind::Option(_) => todo!(),
+                TypeDefKind::Result(_) => todo!(),
+                TypeDefKind::List(_) => todo!(),
+                TypeDefKind::Future(_) => todo!(),
+                TypeDefKind::Stream(_) => todo!(),
+                TypeDefKind::Unknown => todo!(),
             }
-
-            // Ok(())
         }
         Types {
             use_decls,
             declared_types,
             decomposed_types,
         }
-    }
-
-    fn print_record(&self, fields: Vec<Field>) {}
-
-    fn print_option_type(&mut self, resolve: &Resolve, payload: &Type) -> String {
-        let mut output = String::new();
-        output.push_str("option<");
-        output.push_str(&self.print_type_name(resolve, payload));
-        output.push_str(">");
-        output
-    }
-
-    fn print_result_type(&mut self, resolve: &Resolve, result: &Result_) -> String {
-        let mut output = String::new();
-        match result {
-            Result_ {
-                ok: Some(ok),
-                err: Some(err),
-            } => {
-                output.push_str("result<");
-                output.push_str(&self.print_type_name(resolve, ok));
-                output.push_str(", ");
-                output.push_str(&self.print_type_name(resolve, err));
-                output.push_str(">");
-            }
-            Result_ {
-                ok: None,
-                err: Some(err),
-            } => {
-                output.push_str("result<_, ");
-                output.push_str(&self.print_type_name(resolve, err));
-                output.push_str(">");
-            }
-            Result_ {
-                ok: Some(ok),
-                err: None,
-            } => {
-                output.push_str("result<");
-                output.push_str(&self.print_type_name(resolve, ok));
-                output.push_str(">");
-            }
-            Result_ {
-                ok: None,
-                err: None,
-            } => {
-                output.push_str("result");
-            }
-        }
-        output
-    }
-
-    fn print_handle_type(
-        &mut self,
-        resolve: &Resolve,
-        handle: &Handle,
-        force_handle_type_printed: bool,
-    ) -> String {
-        let mut output = String::new();
-        match handle {
-            Handle::Own(ty) => {
-                let ty = &resolve.types[*ty];
-                if force_handle_type_printed {
-                    output.push_str("own<");
-                }
-                output.push_str(ty.name.as_ref().unwrap());
-                if force_handle_type_printed {
-                    output.push_str(">");
-                }
-            }
-
-            Handle::Borrow(ty) => {
-                output.push_str("borrow<");
-                let ty = &resolve.types[*ty];
-                output.push_str(ty.name.as_ref().unwrap());
-                output.push_str(">");
-            }
-        }
-
-        output
     }
 
     fn print_decomposed_type(
@@ -926,13 +747,6 @@ impl DocsPrinter {
                                 TypeDefKind::Unknown => todo!(),
                             };
                             child
-                            // DecomposedType {
-                            //     owner: None,
-                            //     name: name.clone(),
-                            //     docs: ty.docs.contents.clone(),
-                            //     val: "owned".to_string(),
-                            //     children,
-                            // }
                         }
                         Handle::Borrow(borrowed_id) => {
                             let borrowed_ty = &resolve.types[*borrowed_id];
@@ -1051,25 +865,6 @@ impl DocsPrinter {
                             docs: ty.docs.contents.clone(),
                             val: "tuple".to_string(),
                             children: Some(tys),
-                        }
-                    }
-                    TypeDefKind::Variant(Variant { cases }) => {
-                        let mut case_types = Vec::new();
-                        for case in cases {
-                            if let Some(ty) = case.ty {
-                                case_types.push(self.print_decomposed_type(
-                                    Some(case.name.clone()),
-                                    resolve,
-                                    &ty,
-                                ));
-                            }
-                        }
-                        DecomposedType {
-                            owner: None,
-                            name,
-                            docs: ty.docs.contents.clone(),
-                            val: "variant".to_string(),
-                            children: Some(case_types),
                         }
                     }
                     TypeDefKind::Enum(Enum { cases }) => {
@@ -1206,132 +1001,38 @@ impl DocsPrinter {
         }
     }
 
-    fn print_type_name(&mut self, resolve: &Resolve, ty: &Type) -> String {
-        let mut output = String::new();
-        match ty {
-            Type::Bool => output.push_str("bool"),
-            Type::U8 => output.push_str("u8"),
-            Type::U16 => output.push_str("u16"),
-            Type::U32 => output.push_str("u32"),
-            Type::U64 => output.push_str("u64"),
-            Type::S8 => output.push_str("s8"),
-            Type::S16 => output.push_str("s16"),
-            Type::S32 => output.push_str("s32"),
-            Type::S64 => output.push_str("s64"),
-            Type::Float32 => output.push_str("float32"),
-            Type::Float64 => output.push_str("float64"),
-            Type::Char => output.push_str("char"),
-            Type::String => output.push_str("string"),
-
-            Type::Id(id) => {
-                let ty = &resolve.types[*id];
-                if let Some(name) = &ty.name {
-                    output.push_str(name);
-                    return output;
-                }
-
-                match &ty.kind {
-                    TypeDefKind::Handle(h) => {
-                        output.push_str(&self.print_handle_type(resolve, h, false));
-                    }
-                    TypeDefKind::Resource => {
-                        // bail!("resolve has an unnamed resource type");
-                    }
-                    TypeDefKind::Tuple(t) => output.push_str(&self.print_tuple_type(resolve, t)),
-                    TypeDefKind::Option(t) => {
-                        output.push_str(&self.print_option_type(resolve, t));
-                    }
-                    TypeDefKind::Result(t) => {
-                        output.push_str(&self.print_result_type(resolve, t));
-                    }
-                    TypeDefKind::Record(_) => {
-                        // bail!("resolve has an unnamed record type");
-                    }
-                    TypeDefKind::Flags(_) => {
-                        // bail!("resolve has unnamed flags type")
-                    }
-                    TypeDefKind::Enum(_) => {
-                        // bail!("resolve has unnamed enum type")
-                    }
-                    TypeDefKind::Variant(_) => {
-                        // bail!("resolve has unnamed variant type")
-                    }
-                    TypeDefKind::List(ty) => {
-                        output.push_str("list<");
-                        output.push_str(&self.print_type_name(resolve, ty));
-                        output.push_str(">");
-                    }
-                    TypeDefKind::Type(ty) => {
-                        output.push_str(&self.print_type_name(resolve, ty));
-                    }
-                    TypeDefKind::Future(_) => {
-                        todo!("document has an unnamed future type")
-                    }
-                    TypeDefKind::Stream(_) => {
-                        todo!("document has an unnamed stream type")
-                    }
-                    TypeDefKind::Unknown => unreachable!(),
-                }
-            }
-        }
-
-        output
-    }
-
     fn print_function(
         &mut self,
         resolve: &Resolve,
         func: &Function,
-    ) -> (
-        String,
-        Vec<(String, DecomposedType)>,
-        Vec<(String, DecomposedType)>,
-    ) {
-        let mut def = String::new();
+    ) -> (Vec<(String, DecomposedType)>, Vec<(String, DecomposedType)>) {
         let mut params = Vec::new();
         let mut ret = Vec::new();
-        def.push_str("func: (");
 
         // Methods don't print their `self` argument
         let params_to_skip = match &func.kind {
             FunctionKind::Method(_) => 1,
             _ => 0,
         };
-        for (i, (name, ty)) in func.params.iter().skip(params_to_skip).enumerate() {
-            if i > 0 {
-                def.push_str(", ");
-            }
-            def.push_str(name);
-            def.push_str(": ");
-            def.push_str(&self.print_type_name(resolve, ty));
+        for (name, ty) in func.params.iter().skip(params_to_skip) {
             params.push((name.clone(), self.print_decomposed_type(None, resolve, ty)))
         }
-        def.push_str(")");
 
         match &func.results {
             Results::Named(rs) => match rs.len() {
                 0 => (),
                 _ => {
-                    def.push_str(" -> (");
-                    for (i, (name, ty)) in rs.iter().enumerate() {
-                        if i > 0 {
-                            def.push_str(", ");
-                        }
-                        def.push_str(name);
-                        def.push_str(": ");
+                    for (name, ty) in rs.iter() {
                         ret.push((name.clone(), self.print_decomposed_type(None, resolve, ty)));
                     }
-                    def.push_str(")");
                 }
             },
             Results::Anon(ty) => {
-                def.push_str(" -> ");
-                def.push_str(&self.print_type_name(resolve, ty));
                 let decomposed = self.print_decomposed_type(None, resolve, ty);
                 ret.push(("".to_string(), decomposed));
             }
         }
-        (def, params, ret)
+        (params, ret)
     }
 
     fn print_interface(&mut self, resolve: &Resolve, id: InterfaceId) -> Iface {
@@ -1361,11 +1062,10 @@ impl DocsPrinter {
         let mut funcs = Vec::new();
         for (name, func) in freestanding {
             let docs = self.print_docs(&func.docs);
-            let (def, params, result) = self.print_function(resolve, func);
+            let (params, result) = self.print_function(resolve, func);
             funcs.push(Func {
                 name: name.to_string(),
                 docs,
-                def,
                 params,
                 result,
             })
@@ -1379,7 +1079,6 @@ impl DocsPrinter {
 struct Func {
     name: String,
     docs: String,
-    def: String,
     params: Vec<(String, DecomposedType)>,
     result: Vec<(String, DecomposedType)>,
 }
