@@ -9,7 +9,8 @@ use anyhow::{bail, Result};
 use wasm_encoder::{CanonicalOption, Encode, Section};
 use wit_parser::{Resolve, WorldId};
 
-mod decoding;
+/// enables decoding
+pub mod decoding;
 mod encoding;
 mod gc;
 mod linking;
