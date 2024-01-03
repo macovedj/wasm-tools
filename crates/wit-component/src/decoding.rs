@@ -40,67 +40,100 @@ enum WitEncodingVersion {
     V2,
 }
 
-impl ComponentInfo {
-    /// Creates a new component info by parsing the given WebAssembly component bytes.
+/// An incremental parser to generate the `ComponentInfo` from parsing chunks of
+/// the Wasm binary.
+pub struct ComponentInfoParser {
+    done: bool,
+    parser: Parser,
+    depth: usize,
+    validator: Validator,
+    types: Option<types::Types>,
+    externs: Vec<(String, Extern)>,
+    package_docs: Option<PackageDocs>,
+    stack: Vec<Parser>,
+    buffer: Vec<u8>,
+}
 
-    fn from_reader(mut reader: impl Read) -> Result<Self> {
-        let mut validator = Validator::new_with_features(WasmFeatures::all());
-        let mut externs = Vec::new();
-        let mut depth = 1;
-        let mut types = None;
-        let mut package_docs = None;
-        let mut cur = Parser::new(0);
-        let mut eof = false;
-        let mut stack = Vec::new();
-        let mut buffer = Vec::new();
+impl ComponentInfoParser {
+    /// Constructs a new `ComponentInfoParser`.
+    pub fn new() -> Self {
+        Self {
+            done: false,
+            parser: Parser::new(0),
+            depth: 1,
+            validator: Validator::new_with_features(WasmFeatures::all()),
+            types: None,
+            externs: Vec::new(),
+            package_docs: None,
+            stack: Vec::new(),
+            buffer: Vec::new(),
+        }
+    }
+
+    /// Attempts to parse a chunk of data.
+    ///
+    /// This method will attempt to parse the next incremental portion of a
+    /// WebAssembly binary. Data available for the module or component is
+    /// provided as `data`, and the data can be incomplete if more data has yet
+    /// to arrive. The `eof` flag indicates whether more data will ever be received.
+    ///
+    /// Returns `Ok(true)` if parsing is complete and should call `finalize()` method.
+    pub fn parse(&mut self, data: &[u8], eof: bool) -> Result<bool> {
+        if self.done {
+            bail!("parsed called again after parsing is finished");
+        }
+
+        // append to buffered data from previous read
+        self.buffer.extend_from_slice(data);
+        let mut buf = self.buffer.as_slice();
 
         loop {
-            let chunk = cur.parse(&buffer, eof)?;
+            let chunk = self.parser.parse(buf, eof)?;
             let (payload, consumed) = match chunk {
-                Chunk::NeedMoreData(hint) => {
-                    assert!(!eof); // otherwise an error would be returned
+                Chunk::NeedMoreData(_) => {
+                    // prepare buffer for next parse call
+                    if buf.is_empty() {
+                        self.buffer.truncate(0);
+                    } else {
+                        let remaining = buf.len();
+                        let last = self.buffer.len() - remaining;
+                        self.buffer.copy_within(last.., 0);
+                        self.buffer.truncate(remaining);
+                    }
 
-                    // Use the hint to preallocate more space, then read
-                    // some more data into our buffer.
-                    //
-                    // Note that the buffer management here is not ideal,
-                    // but it's compact enough to fit in an example!
-                    let len = buffer.len().clone();
-                    buffer.extend((0..hint).map(|_| 0u8));
-                    let n = reader.read(&mut buffer[len..])?;
-                    buffer.truncate(len + n);
-                    eof = n == 0;
-                    continue;
+                    assert!(!eof); // otherwise an error would be returned
+                    return Ok(false);
                 }
 
                 Chunk::Parsed { consumed, payload } => (payload, consumed),
             };
-            match validator.payload(&payload)? {
+
+            match self.validator.payload(&payload)? {
                 ValidPayload::Ok => {}
-                ValidPayload::Parser(_) => depth += 1,
+                ValidPayload::Parser(_) => self.depth += 1,
                 ValidPayload::End(t) => {
-                    depth -= 1;
-                    if depth == 0 {
-                        types = Some(t);
+                    self.depth -= 1;
+                    if self.depth == 0 {
+                        self.types = Some(t);
                     }
                 }
                 ValidPayload::Func(..) => {}
             }
 
             match payload {
-                Payload::ComponentImportSection(s) if depth == 1 => {
+                Payload::ComponentImportSection(s) if self.depth == 1 => {
                     for import in s {
                         let import = import?;
-                        externs.push((
+                        self.externs.push((
                             import.name.0.to_string(),
                             Extern::Import(import.name.0.to_string()),
                         ));
                     }
                 }
-                Payload::ComponentExportSection(s) if depth == 1 => {
+                Payload::ComponentExportSection(s) if self.depth == 1 => {
                     for export in s {
                         let export = export?;
-                        externs.push((
+                        self.externs.push((
                             export.name.0.to_string(),
                             Extern::Export(DecodingExport {
                                 name: export.name.0.to_string(),
@@ -111,36 +144,90 @@ impl ComponentInfo {
                     }
                 }
                 Payload::CustomSection(s) if s.name() == PACKAGE_DOCS_SECTION_NAME => {
-                    if package_docs.is_some() {
+                    if self.package_docs.is_some() {
                         bail!("multiple {PACKAGE_DOCS_SECTION_NAME:?} sections");
                     }
-                    package_docs = Some(PackageDocs::decode(s.data())?);
+                    self.package_docs = Some(PackageDocs::decode(s.data())?);
                 }
                 Payload::ModuleSection { parser, .. }
                 | Payload::ComponentSection { parser, .. } => {
-                    stack.push(cur.clone());
-                    cur = parser.clone();
+                    self.stack.push(self.parser.clone());
+                    self.parser = parser.clone();
                 }
                 Payload::End(_) => {
-                    if let Some(parent_parser) = stack.pop() {
-                        cur = parent_parser.clone();
+                    if let Some(parent_parser) = self.stack.pop() {
+                        self.parser = parent_parser.clone();
                     } else {
-                        break;
+                        self.done = true;
+                        self.stack.truncate(0);
+                        self.buffer.truncate(0);
+
+                        return Ok(true);
                     }
                 }
                 _ => {}
             }
 
-            // once we're done processing the payload we can forget the
-            // original.
-            buffer.drain(..consumed);
+            // prepare the buffer for the next parse call
+            buf = &buf[consumed..];
         }
+    }
 
-        Ok(Self {
-            types: types.unwrap(),
-            externs,
-            package_docs,
-        })
+    fn finalize(self) -> Result<ComponentInfo> {
+        if !self.done {
+            bail!("not done parsing")
+        } else {
+            Ok(ComponentInfo {
+                types: self.types.unwrap(),
+                externs: self.externs,
+                package_docs: self.package_docs,
+            })
+        }
+    }
+
+    /// When finished parsing, calling `decode` returns the `DecodedWasm` result.
+    pub fn decode(self) -> Result<DecodedWasm> {
+        let info = self.finalize()?;
+
+        if let Some(version) = info.is_wit_package() {
+            match version {
+                WitEncodingVersion::V1 => {
+                    log::debug!("decoding a v1 WIT package encoded as wasm");
+                    let (resolve, pkg) = info.decode_wit_v1_package()?;
+                    Ok(DecodedWasm::WitPackage(resolve, pkg))
+                }
+                WitEncodingVersion::V2 => {
+                    log::debug!("decoding a v2 WIT package encoded as wasm");
+                    let (resolve, pkg) = info.decode_wit_v2_package()?;
+                    Ok(DecodedWasm::WitPackage(resolve, pkg))
+                }
+            }
+        } else {
+            log::debug!("inferring the WIT of a concrete component");
+            let (resolve, world) = info.decode_component()?;
+            Ok(DecodedWasm::Component(resolve, world))
+        }
+    }
+}
+
+impl ComponentInfo {
+    /// Creates a new component info by parsing the given WebAssembly component bytes.
+
+    fn from_reader(mut reader: impl Read) -> Result<Self> {
+        let mut parser = ComponentInfoParser::new();
+
+        // initialize buffer
+        let mut buffer = Vec::with_capacity(4096);
+        buffer.extend((0..buffer.capacity()).map(|_| 0u8));
+
+        loop {
+            let n = reader.read(&mut buffer)?;
+            let eof = n == 0;
+
+            if parser.parse(&buffer[0..n], eof)? {
+                return parser.finalize();
+            }
+        }
     }
 
     fn is_wit_package(&self) -> Option<WitEncodingVersion> {

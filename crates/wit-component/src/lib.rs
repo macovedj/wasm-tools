@@ -17,7 +17,7 @@ mod printing;
 mod targets;
 mod validation;
 
-pub use decoding::{decode, decode_reader, DecodedWasm};
+pub use decoding::{decode, decode_reader, ComponentInfoParser, DecodedWasm};
 pub use encoding::{encode, ComponentEncoder};
 pub use linking::Linker;
 pub use printing::*;
