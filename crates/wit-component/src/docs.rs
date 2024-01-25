@@ -19,8 +19,24 @@ fn resource_func(f: &Function) -> Option<TypeId> {
 
 #[derive(Deserialize, Serialize)]
 struct World {
+    name: String,
+    interfaces: Vec<Interface>,
     type_defs: Types,
     funcs: Vec<Func>,
+}
+
+impl World {
+    fn new(name: String) -> Self {
+        Self {
+            name,
+            interfaces: Vec::new(),
+            type_defs: Types {
+                use_decls: Vec::new(),
+                decomposed_types: Vec::new(),
+            },
+            funcs: Vec::new(),
+        }
+    }
 }
 
 /// Data structure for printing docs JSON
@@ -1438,11 +1454,15 @@ struct Iface {
 
 /// Print JSON with info for rendering docs
 pub fn print_docs(decoded: &DecodedWasm) -> String {
+    dbg!(decoded.package());
+    let pkg_id = decoded.package();
     let mut printer = DocsPrinter::default();
     let strung = match decoded {
         DecodedWasm::WitPackage(resolve, package_id) => {
             dbg!("WIT PACKAGE");
             let pkg = &resolve.packages[*package_id];
+            let mut printing_world = World::new(pkg.name.name.clone());
+            dbg!(&pkg.name);
             for (name, id) in pkg.interfaces.iter() {
                 let docs = printer.print_docs(&resolve.interfaces[*id].docs);
                 let interface = printer.print_interface(&resolve, *id);
@@ -1452,9 +1472,9 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                     type_defs: interface.type_defs,
                     funcs: interface.funcs,
                 };
-                printer.interfaces.push(rendered);
+                printing_world.interfaces.push(rendered);
             }
-            serde_json::to_string(&printer.interfaces).unwrap()
+            serde_json::to_string(&printing_world).unwrap()
         }
         DecodedWasm::Component(resolve, world_id) => {
             dbg!("IMPL PACKAGE");
@@ -1467,23 +1487,22 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
             //         .or_insert(0);
             //     *cnt += 1;
             // }
+            let pkg = &resolve.packages.get(pkg_id).unwrap();
+            dbg!(&pkg.name);
+
             let world = &resolve.worlds[*world_id];
             if let Some(pkg) = world.package {
                 let package = &resolve.packages[pkg];
                 // let pkg_world = package.worlds
             }
             dbg!(&world.exports);
-            let mut printing_world = World {
-                type_defs: Types {
-                    use_decls: Vec::new(),
-                    decomposed_types: Vec::new(),
-                },
-                funcs: Vec::new(),
-            };
+            let mut printing_world = World::new(pkg.name.name.clone());
             for (key, item) in &world.imports {
                 match item {
                     wit_parser::WorldItem::Interface(id) => {
+                        dbg!("INTERFACE");
                         let iface = &resolve.interfaces[*id];
+                        dbg!(&iface.name);
                         let docs = printer.print_docs(&iface.docs);
                         let interface = printer.print_interface(&resolve, *id);
                         let rendered = Interface {
@@ -1492,7 +1511,7 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                             type_defs: interface.type_defs,
                             funcs: interface.funcs,
                         };
-                        printer.interfaces.push(rendered);
+                        printing_world.interfaces.push(rendered);
                     }
                     wit_parser::WorldItem::Function(func) => {
                         dbg!("FUNC");
@@ -1741,15 +1760,25 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                 match item {
                     wit_parser::WorldItem::Interface(id) => {
                         let iface = &resolve.interfaces[*id];
+                        dbg!(&iface.name);
                         let docs = printer.print_docs(&iface.docs);
                         let interface = printer.print_interface(&resolve, *id);
-                        let rendered = Interface {
-                            docs,
-                            name: iface.name.as_ref().expect("to exist").to_string(),
-                            type_defs: interface.type_defs,
-                            funcs: interface.funcs,
+                        let rendered = if let Some(name) = iface.name.clone() {
+                            Interface {
+                                docs,
+                                name,
+                                type_defs: interface.type_defs,
+                                funcs: interface.funcs,
+                            }
+                        } else {
+                            Interface {
+                                docs,
+                                name: "".to_string(),
+                                type_defs: interface.type_defs,
+                                funcs: interface.funcs,
+                            }
                         };
-                        printer.interfaces.push(rendered);
+                        printing_world.interfaces.push(rendered);
                     }
                     wit_parser::WorldItem::Function(func) => {
                         dbg!("FUNC");
