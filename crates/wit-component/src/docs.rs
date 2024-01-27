@@ -18,6 +18,11 @@ fn resource_func(f: &Function) -> Option<TypeId> {
 }
 
 #[derive(Deserialize, Serialize)]
+struct Package {
+    namespace: String,
+    name: String,
+}
+#[derive(Deserialize, Serialize)]
 struct World {
     name: String,
     interfaces: Vec<Interface>,
@@ -57,7 +62,14 @@ pub struct DocsPrinter {
 }
 
 #[derive(Serialize, Deserialize)]
+enum Direction {
+    Import,
+    Export,
+}
+#[derive(Serialize, Deserialize)]
 struct Interface {
+    direction: Direction,
+    package: Package,
     docs: String,
     name: String,
     type_defs: Types,
@@ -1467,6 +1479,11 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                 let docs = printer.print_docs(&resolve.interfaces[*id].docs);
                 let interface = printer.print_interface(&resolve, *id);
                 let rendered = Interface {
+                    direction: Direction::Import,
+                    package: Package {
+                        namespace: pkg.name.namespace.clone(),
+                        name: pkg.name.name.clone(),
+                    },
                     docs,
                     name: name.to_string(),
                     type_defs: interface.type_defs,
@@ -1503,13 +1520,35 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                         dbg!("INTERFACE");
                         let iface = &resolve.interfaces[*id];
                         dbg!(&iface.name);
+                        dbg!(&iface.package);
+                        let package = &resolve.packages[iface.package.unwrap()];
+                        dbg!(&package.name);
                         let docs = printer.print_docs(&iface.docs);
                         let interface = printer.print_interface(&resolve, *id);
-                        let rendered = Interface {
-                            docs,
-                            name: iface.name.as_ref().expect("to exist").to_string(),
-                            type_defs: interface.type_defs,
-                            funcs: interface.funcs,
+                        let rendered = if let Some(name) = iface.name.clone() {
+                            Interface {
+                                direction: Direction::Import,
+                                package: Package {
+                                    namespace: package.name.namespace.clone(),
+                                    name: package.name.name.clone(),
+                                },
+                                docs,
+                                name,
+                                type_defs: interface.type_defs,
+                                funcs: interface.funcs,
+                            }
+                        } else {
+                            Interface {
+                                direction: Direction::Import,
+                                package: Package {
+                                    namespace: package.name.namespace.clone(),
+                                    name: package.name.name.clone(),
+                                },
+                                docs,
+                                name: "".to_string(),
+                                type_defs: interface.type_defs,
+                                funcs: interface.funcs,
+                            }
                         };
                         printing_world.interfaces.push(rendered);
                     }
@@ -1761,10 +1800,17 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                     wit_parser::WorldItem::Interface(id) => {
                         let iface = &resolve.interfaces[*id];
                         dbg!(&iface.name);
+                        dbg!(&iface.package);
+                        let package = &resolve.packages[iface.package.unwrap()];
                         let docs = printer.print_docs(&iface.docs);
                         let interface = printer.print_interface(&resolve, *id);
                         let rendered = if let Some(name) = iface.name.clone() {
                             Interface {
+                                direction: Direction::Export,
+                                package: Package {
+                                    namespace: package.name.namespace.clone(),
+                                    name: package.name.name.clone(),
+                                },
                                 docs,
                                 name,
                                 type_defs: interface.type_defs,
@@ -1772,6 +1818,11 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                             }
                         } else {
                             Interface {
+                                direction: Direction::Export,
+                                package: Package {
+                                    namespace: package.name.namespace.clone(),
+                                    name: package.name.name.clone(),
+                                },
                                 docs,
                                 name: "".to_string(),
                                 type_defs: interface.type_defs,
