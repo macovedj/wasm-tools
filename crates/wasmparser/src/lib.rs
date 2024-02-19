@@ -129,10 +129,15 @@ macro_rules! for_each_operator {
             @mvp Loop { blockty: $crate::BlockType } => visit_loop
             @mvp If { blockty: $crate::BlockType } => visit_if
             @mvp Else => visit_else
+            @exceptions TryTable { try_table: $crate::TryTable } => visit_try_table
+            @exceptions Throw { tag_index: u32 } => visit_throw
+            @exceptions ThrowRef => visit_throw_ref
+            // Deprecated old instructions from the exceptions proposal
             @exceptions Try { blockty: $crate::BlockType } => visit_try
             @exceptions Catch { tag_index: u32 } => visit_catch
-            @exceptions Throw { tag_index: u32 } => visit_throw
             @exceptions Rethrow { relative_depth: u32 } => visit_rethrow
+            @exceptions Delegate { relative_depth: u32 } => visit_delegate
+            @exceptions CatchAll => visit_catch_all
             @mvp End => visit_end
             @mvp Br { relative_depth: u32 } => visit_br
             @mvp BrIf { relative_depth: u32 } => visit_br_if
@@ -142,8 +147,6 @@ macro_rules! for_each_operator {
             @mvp CallIndirect { type_index: u32, table_index: u32, table_byte: u8 } => visit_call_indirect
             @tail_call ReturnCall { function_index: u32 } => visit_return_call
             @tail_call ReturnCallIndirect { type_index: u32, table_index: u32 } => visit_return_call_indirect
-            @exceptions Delegate { relative_depth: u32 } => visit_delegate
-            @exceptions CatchAll => visit_catch_all
             @mvp Drop => visit_drop
             @mvp Select => visit_select
             @reference_types TypedSelect { ty: $crate::ValType } => visit_typed_select
@@ -184,6 +187,7 @@ macro_rules! for_each_operator {
             @reference_types RefNull { hty: $crate::HeapType } => visit_ref_null
             @reference_types RefIsNull => visit_ref_is_null
             @reference_types RefFunc { function_index: u32 } => visit_ref_func
+            @gc RefEq => visit_ref_eq
             @mvp I32Eqz => visit_i32_eqz
             @mvp I32Eq => visit_i32_eq
             @mvp I32Ne => visit_i32_ne
@@ -316,6 +320,42 @@ macro_rules! for_each_operator {
             // 0xFB prefixed operators
             // Garbage Collection
             // http://github.com/WebAssembly/gc
+            @gc StructNew { struct_type_index: u32 } => visit_struct_new
+            @gc StructNewDefault { struct_type_index: u32 } => visit_struct_new_default
+            @gc StructGet { struct_type_index: u32, field_index: u32 } => visit_struct_get
+            @gc StructGetS { struct_type_index: u32, field_index: u32 } => visit_struct_get_s
+            @gc StructGetU { struct_type_index: u32, field_index: u32 } => visit_struct_get_u
+                @gc StructSet { struct_type_index: u32, field_index: u32 } => visit_struct_set
+            @gc ArrayNew { array_type_index: u32 } => visit_array_new
+            @gc ArrayNewDefault { array_type_index: u32 } => visit_array_new_default
+            @gc ArrayNewFixed { array_type_index: u32, array_size: u32 } => visit_array_new_fixed
+            @gc ArrayNewData { array_type_index: u32, array_data_index: u32 } => visit_array_new_data
+            @gc ArrayNewElem { array_type_index: u32, array_elem_index: u32 } => visit_array_new_elem
+            @gc ArrayGet { array_type_index: u32 } => visit_array_get
+            @gc ArrayGetS { array_type_index: u32 } => visit_array_get_s
+            @gc ArrayGetU { array_type_index: u32 } => visit_array_get_u
+            @gc ArraySet { array_type_index: u32 } => visit_array_set
+            @gc ArrayLen => visit_array_len
+            @gc ArrayFill { array_type_index: u32 } => visit_array_fill
+            @gc ArrayCopy { array_type_index_dst: u32, array_type_index_src: u32 } => visit_array_copy
+            @gc ArrayInitData { array_type_index: u32, array_data_index: u32 } => visit_array_init_data
+            @gc ArrayInitElem { array_type_index: u32, array_elem_index: u32 } => visit_array_init_elem
+            @gc RefTestNonNull { hty: $crate::HeapType } => visit_ref_test_non_null
+            @gc RefTestNullable { hty: $crate::HeapType } => visit_ref_test_nullable
+            @gc RefCastNonNull { hty: $crate::HeapType } => visit_ref_cast_non_null
+            @gc RefCastNullable { hty: $crate::HeapType } => visit_ref_cast_nullable
+            @gc BrOnCast {
+                relative_depth: u32,
+                from_ref_type: $crate::RefType,
+                to_ref_type: $crate::RefType
+            } => visit_br_on_cast
+            @gc BrOnCastFail {
+                relative_depth: u32,
+                from_ref_type: $crate::RefType,
+                to_ref_type: $crate::RefType
+            } => visit_br_on_cast_fail
+            @gc AnyConvertExtern => visit_any_convert_extern
+            @gc ExternConvertAny => visit_extern_convert_any
             @gc RefI31 => visit_ref_i31
             @gc I31GetS => visit_i31_get_s
             @gc I31GetU => visit_i31_get_u

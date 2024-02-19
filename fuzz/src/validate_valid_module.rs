@@ -25,19 +25,7 @@ pub fn run(u: &mut Unstructured<'_>) -> Result<()> {
     };
 
     // Validate the module or component and assert that it passes validation.
-    let mut validator = wasmparser::Validator::new_with_features(wasmparser::WasmFeatures {
-        component_model: generate_component,
-        multi_value: config.multi_value_enabled,
-        multi_memory: config.max_memories > 1,
-        bulk_memory: true,
-        reference_types: true,
-        simd: config.simd_enabled,
-        relaxed_simd: config.relaxed_simd_enabled,
-        memory64: config.memory64_enabled,
-        threads: config.threads_enabled,
-        exceptions: config.exceptions_enabled,
-        ..wasmparser::WasmFeatures::default()
-    });
+    let mut validator = crate::validator_for_config(&config);
     if let Err(e) = validator.validate_all(&wasm_bytes) {
         let component_or_module = if generate_component {
             "component"
@@ -55,18 +43,28 @@ pub fn run(u: &mut Unstructured<'_>) -> Result<()> {
             e
         )
     });
+
     let wasm_bytes = wat::parse_str(&wat_string).unwrap_or_else(|e| {
         panic!(
             "failed to assemble wat into Wasm with `wat::parse_str`: {}",
             e
         )
     });
+    if log::log_enabled!(log::Level::Debug) {
+        log::debug!("Writing roundtripped wasm to `test2.wasm`...");
+        std::fs::write("test2.wasm", &wasm_bytes).unwrap();
+    }
+
     let wat_string2 = wasmprinter::print_bytes(&wasm_bytes).unwrap_or_else(|e| {
         panic!(
             "failed second disassembly of Wasm into wat with `wasmprinter::print_bytes`: {}",
             e
         )
     });
+    if log::log_enabled!(log::Level::Debug) {
+        log::debug!("Writing round tripped text format to `test2.wat`...");
+        std::fs::write("test2.wat", &wat_string2).unwrap();
+    }
 
     if wat_string != wat_string2 {
         panic!("failed to roundtrip valid module");

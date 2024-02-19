@@ -210,6 +210,7 @@ pub fn heapty(t: &mut dyn Translator, ty: &wasmparser::HeapType) -> Result<HeapT
         wasmparser::HeapType::Struct => Ok(HeapType::Struct),
         wasmparser::HeapType::Array => Ok(HeapType::Array),
         wasmparser::HeapType::I31 => Ok(HeapType::I31),
+        wasmparser::HeapType::Exn => Ok(HeapType::Exn),
         wasmparser::HeapType::Concrete(i) => Ok(HeapType::Concrete(
             t.remap(Item::Type, i.as_module_index().unwrap())?,
         )),
@@ -337,12 +338,18 @@ pub fn op(t: &mut dyn Translator, op: &Operator<'_>) -> Result<Instruction<'stat
         (map $arg:ident dst_table) => (t.remap(Item::Table, *$arg)?);
         (map $arg:ident src_table) => (t.remap(Item::Table, *$arg)?);
         (map $arg:ident type_index) => (t.remap(Item::Type, *$arg)?);
+        (map $arg:ident array_type_index) => (t.remap(Item::Type, *$arg)?);
+        (map $arg:ident array_type_index_dst) => (t.remap(Item::Type, *$arg)?);
+        (map $arg:ident array_type_index_src) => (t.remap(Item::Type, *$arg)?);
+        (map $arg:ident struct_type_index) => (t.remap(Item::Type, *$arg)?);
         (map $arg:ident global_index) => (t.remap(Item::Global, *$arg)?);
         (map $arg:ident mem) => (t.remap(Item::Memory, *$arg)?);
         (map $arg:ident src_mem) => (t.remap(Item::Memory, *$arg)?);
         (map $arg:ident dst_mem) => (t.remap(Item::Memory, *$arg)?);
         (map $arg:ident data_index) => (t.remap(Item::Data, *$arg)?);
         (map $arg:ident elem_index) => (t.remap(Item::Element, *$arg)?);
+        (map $arg:ident array_data_index) => (t.remap(Item::Data, *$arg)?);
+        (map $arg:ident array_elem_index) => (t.remap(Item::Element, *$arg)?);
         (map $arg:ident blockty) => (t.translate_block_type($arg)?);
         (map $arg:ident relative_depth) => (*$arg);
         (map $arg:ident targets) => ((
@@ -357,11 +364,18 @@ pub fn op(t: &mut dyn Translator, op: &Operator<'_>) -> Result<Instruction<'stat
         (map $arg:ident flags) => (());
         (map $arg:ident ty) => (t.translate_ty($arg)?);
         (map $arg:ident hty) => (t.translate_heapty($arg)?);
+        (map $arg:ident from_ref_type) => (t.translate_refty($arg)?);
+        (map $arg:ident to_ref_type) => (t.translate_refty($arg)?);
         (map $arg:ident memarg) => (t.translate_memarg($arg)?);
         (map $arg:ident local_index) => (*$arg);
         (map $arg:ident value) => ($arg);
         (map $arg:ident lane) => (*$arg);
         (map $arg:ident lanes) => (*$arg);
+        (map $arg:ident array_size) => (*$arg);
+        (map $arg:ident field_index) => (*$arg);
+        (map $arg:ident from_type_nullable) => (*$arg);
+        (map $arg:ident to_type_nullable) => (*$arg);
+        (map $arg:ident try_table) => ($arg);
 
         // This case takes the arguments of a wasmparser instruction and creates
         // a wasm-encoder instruction. There are a few special cases for where
@@ -374,6 +388,7 @@ pub fn op(t: &mut dyn Translator, op: &Operator<'_>) -> Result<Instruction<'stat
         (build F32Const $arg:ident) => (I::F32Const(f32::from_bits($arg.bits())));
         (build F64Const $arg:ident) => (I::F64Const(f64::from_bits($arg.bits())));
         (build V128Const $arg:ident) => (I::V128Const($arg.i128()));
+        (build TryTable $table:ident) => (unimplemented_try_table());
         (build $op:ident $arg:ident) => (I::$op($arg));
         (build CallIndirect $ty:ident $table:ident $_:ident) => (I::CallIndirect {
             ty: $ty,
@@ -385,10 +400,20 @@ pub fn op(t: &mut dyn Translator, op: &Operator<'_>) -> Result<Instruction<'stat
         });
         (build MemoryGrow $mem:ident $_:ident) => (I::MemoryGrow($mem));
         (build MemorySize $mem:ident $_:ident) => (I::MemorySize($mem));
+        (build StructNew $type_index:ident) => (I::StructNew($type_index));
+        (build ArrayGet $type_index:ident) => (I::ArrayGet($type_index));
+        (build ArrayGetS $type_index:ident) => (I::ArrayGetS($type_index));
+        (build ArrayGetU $type_index:ident) => (I::ArrayGetU($type_index));
+        (build ArraySet $type_index:ident) => (I::ArraySet($type_index));
+        (build ArrayFill $type_index:ident) => (I::ArrayFill($type_index));
         (build $op:ident $($arg:ident)*) => (I::$op { $($arg),* });
     }
 
     wasmparser::for_each_operator!(translate)
+}
+
+fn unimplemented_try_table() -> wasm_encoder::Instruction<'static> {
+    unimplemented!()
 }
 
 pub fn block_type(t: &mut dyn Translator, ty: &wasmparser::BlockType) -> Result<BlockType> {

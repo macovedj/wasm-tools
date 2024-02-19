@@ -352,6 +352,15 @@ impl WasmFeatures {
                     Err("heap types not supported without the gc feature")
                 }
             }
+
+            // These types were added in the exception-handling proposal.
+            (HeapType::Exn, _) => {
+                if self.exceptions {
+                    Ok(())
+                } else {
+                    Err("exception refs not supported without the exception handling feature")
+                }
+            }
         }
     }
 }
@@ -363,7 +372,6 @@ impl Default for WasmFeatures {
             exceptions: false,
             memory64: false,
             extended_const: false,
-            component_model: false,
             function_references: false,
             memory_control: false,
             gc: false,
@@ -383,6 +391,7 @@ impl Default for WasmFeatures {
             relaxed_simd: true,
             threads: true,
             multi_memory: true,
+            component_model: true,
         }
     }
 }

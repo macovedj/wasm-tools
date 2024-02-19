@@ -2,7 +2,6 @@ use arbitrary::{Arbitrary, Error, Unstructured};
 use rand::RngCore;
 use std::sync::atomic::{AtomicIsize, AtomicUsize, Ordering::SeqCst};
 use std::sync::Arc;
-use wasm_smith::SwarmConfig;
 use wasmtime::*;
 
 struct State {
@@ -95,19 +94,19 @@ impl State {
     /// Records when instantiation fails and why it fails.
     fn run_once(&self, data: &[u8]) -> Result<(), Error> {
         let mut u = Unstructured::new(data);
-        // Here `SwarmConfig` is used to get hopefully a bit more coverage of
+        // Here swarm testing is used to get hopefully a bit more coverage of
         // interesting states, and we also forcibly disable all `start`
         // functions for now. Not much work has gone into minimizing the traps
         // generated from wasm functions themselves, and this shouldn't be
         // enabled until that's been worked on.
-        let mut config = SwarmConfig::arbitrary(&mut u)?;
+        let mut config = wasm_smith::Config::arbitrary(&mut u)?;
         config.allow_start_export = false;
 
         // Wasmtime doesn't support this proposal yet.
-        config.tail_call_enabled = false;
+        config.gc_enabled = false;
 
         let mut wasm = wasm_smith::Module::new(config, &mut u)?;
-        wasm.ensure_termination(10_000);
+        wasm.ensure_termination(10_000).unwrap();
         let wasm = wasm.to_bytes();
 
         // We install a resource limiter in the store which limits the store to

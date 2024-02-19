@@ -681,7 +681,7 @@ impl<'a> BinaryReader<'a> {
         Ok(self.buffer[self.position])
     }
 
-    fn read_block_type(&mut self) -> Result<BlockType> {
+    pub(crate) fn read_block_type(&mut self) -> Result<BlockType> {
         let b = self.peek()?;
 
         // Check for empty block
@@ -770,6 +770,7 @@ impl<'a> BinaryReader<'a> {
             0x07 => visitor.visit_catch(self.read_var_u32()?),
             0x08 => visitor.visit_throw(self.read_var_u32()?),
             0x09 => visitor.visit_rethrow(self.read_var_u32()?),
+            0x0a => visitor.visit_throw_ref(),
             0x0b => visitor.visit_end(),
             0x0c => visitor.visit_br(self.read_var_u32()?),
             0x0d => visitor.visit_br_if(self.read_var_u32()?),
@@ -799,6 +800,7 @@ impl<'a> BinaryReader<'a> {
                 }
                 visitor.visit_typed_select(self.read()?)
             }
+            0x1f => visitor.visit_try_table(self.read()?),
 
             0x20 => visitor.visit_local_get(self.read_var_u32()?),
             0x21 => visitor.visit_local_set(self.read_var_u32()?),
@@ -978,6 +980,7 @@ impl<'a> BinaryReader<'a> {
             0xd0 => visitor.visit_ref_null(self.read()?),
             0xd1 => visitor.visit_ref_is_null(),
             0xd2 => visitor.visit_ref_func(self.read_var_u32()?),
+            0xd3 => visitor.visit_ref_eq(),
             0xd4 => visitor.visit_ref_as_non_null(),
             0xd5 => visitor.visit_br_on_null(self.read_var_u32()?),
             0xd6 => visitor.visit_br_on_non_null(self.read_var_u32()?),
@@ -1001,6 +1004,147 @@ impl<'a> BinaryReader<'a> {
     {
         let code = self.read_var_u32()?;
         Ok(match code {
+            0x0 => {
+                let type_index = self.read_var_u32()?;
+                visitor.visit_struct_new(type_index)
+            }
+            0x01 => {
+                let type_index = self.read_var_u32()?;
+                visitor.visit_struct_new_default(type_index)
+            }
+            0x02 => {
+                let type_index = self.read_var_u32()?;
+                let field_index = self.read_var_u32()?;
+                visitor.visit_struct_get(type_index, field_index)
+            }
+            0x03 => {
+                let type_index = self.read_var_u32()?;
+                let field_index = self.read_var_u32()?;
+                visitor.visit_struct_get_s(type_index, field_index)
+            }
+            0x04 => {
+                let type_index = self.read_var_u32()?;
+                let field_index = self.read_var_u32()?;
+                visitor.visit_struct_get_u(type_index, field_index)
+            }
+            0x05 => {
+                let type_index = self.read_var_u32()?;
+                let field_index = self.read_var_u32()?;
+                visitor.visit_struct_set(type_index, field_index)
+            }
+            0x06 => {
+                let type_index = self.read_var_u32()?;
+                visitor.visit_array_new(type_index)
+            }
+            0x07 => {
+                let type_index = self.read_var_u32()?;
+                visitor.visit_array_new_default(type_index)
+            }
+            0x08 => {
+                let type_index = self.read_var_u32()?;
+                let n = self.read_var_u32()?;
+                visitor.visit_array_new_fixed(type_index, n)
+            }
+            0x09 => {
+                let type_index = self.read_var_u32()?;
+                let data_index = self.read_var_u32()?;
+                visitor.visit_array_new_data(type_index, data_index)
+            }
+            0x0a => {
+                let type_index = self.read_var_u32()?;
+                let elem_index = self.read_var_u32()?;
+                visitor.visit_array_new_elem(type_index, elem_index)
+            }
+            0x0b => {
+                let type_index = self.read_var_u32()?;
+                visitor.visit_array_get(type_index)
+            }
+            0x0c => {
+                let type_index = self.read_var_u32()?;
+                visitor.visit_array_get_s(type_index)
+            }
+            0x0d => {
+                let type_index = self.read_var_u32()?;
+                visitor.visit_array_get_u(type_index)
+            }
+            0x0e => {
+                let type_index = self.read_var_u32()?;
+                visitor.visit_array_set(type_index)
+            }
+            0x0f => visitor.visit_array_len(),
+            0x10 => {
+                let type_index = self.read_var_u32()?;
+                visitor.visit_array_fill(type_index)
+            }
+            0x11 => {
+                let type_index_dst = self.read_var_u32()?;
+                let type_index_src = self.read_var_u32()?;
+                visitor.visit_array_copy(type_index_dst, type_index_src)
+            }
+            0x12 => {
+                let type_index = self.read_var_u32()?;
+                let data_index = self.read_var_u32()?;
+                visitor.visit_array_init_data(type_index, data_index)
+            }
+            0x13 => {
+                let type_index = self.read_var_u32()?;
+                let elem_index = self.read_var_u32()?;
+                visitor.visit_array_init_elem(type_index, elem_index)
+            }
+            0x14 => visitor.visit_ref_test_non_null(self.read()?),
+            0x15 => visitor.visit_ref_test_nullable(self.read()?),
+            0x16 => visitor.visit_ref_cast_non_null(self.read()?),
+            0x17 => visitor.visit_ref_cast_nullable(self.read()?),
+            0x18 => {
+                let pos = self.original_position();
+                let cast_flags = self.read_u8()?;
+                let relative_depth = self.read_var_u32()?;
+                let (from_type_nullable, to_type_nullable) = match cast_flags {
+                    0b00 => (false, false),
+                    0b01 => (true, false),
+                    0b10 => (false, true),
+                    0b11 => (true, true),
+                    _ => bail!(pos, "invalid cast flags: {cast_flags:08b}"),
+                };
+                let from_heap_type = self.read()?;
+                let from_ref_type =
+                    RefType::new(from_type_nullable, from_heap_type).ok_or_else(|| {
+                        format_err!(pos, "implementation error: type index too large")
+                    })?;
+                let to_heap_type = self.read()?;
+                let to_ref_type =
+                    RefType::new(to_type_nullable, to_heap_type).ok_or_else(|| {
+                        format_err!(pos, "implementation error: type index too large")
+                    })?;
+                visitor.visit_br_on_cast(relative_depth, from_ref_type, to_ref_type)
+            }
+            0x19 => {
+                let pos = self.original_position();
+                let cast_flags = self.read_u8()?;
+                let relative_depth = self.read_var_u32()?;
+                let (from_type_nullable, to_type_nullable) = match cast_flags {
+                    0 => (false, false),
+                    1 => (true, false),
+                    2 => (false, true),
+                    3 => (true, true),
+                    _ => bail!(pos, "invalid cast flags: {cast_flags:08b}"),
+                };
+                let from_heap_type = self.read()?;
+                let from_ref_type =
+                    RefType::new(from_type_nullable, from_heap_type).ok_or_else(|| {
+                        format_err!(pos, "implementation error: type index too large")
+                    })?;
+                let to_heap_type = self.read()?;
+                let to_ref_type =
+                    RefType::new(to_type_nullable, to_heap_type).ok_or_else(|| {
+                        format_err!(pos, "implementation error: type index too large")
+                    })?;
+                visitor.visit_br_on_cast_fail(relative_depth, from_ref_type, to_ref_type)
+            }
+
+            0x1a => visitor.visit_any_convert_extern(),
+            0x1b => visitor.visit_extern_convert_any(),
+
             0x1c => visitor.visit_ref_i31(),
             0x1d => visitor.visit_i31_get_s(),
             0x1e => visitor.visit_i31_get_u(),
@@ -1665,7 +1809,7 @@ impl<'a> VisitOperator<'a> for OperatorFactory<'a> {
 /// Iterator returned from [`BinaryReader::read_iter`].
 pub struct BinaryReaderIter<'a, 'me, T: FromReader<'a>> {
     remaining: usize,
-    reader: &'me mut BinaryReader<'a>,
+    pub(crate) reader: &'me mut BinaryReader<'a>,
     _marker: marker::PhantomData<T>,
 }
 

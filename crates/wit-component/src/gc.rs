@@ -475,9 +475,13 @@ impl<'a> Module<'a> {
 
     fn valty(&mut self, ty: ValType) {
         match ty {
-            ValType::Ref(r) => self.heapty(r.heap_type()),
+            ValType::Ref(r) => self.refty(r),
             ValType::I32 | ValType::I64 | ValType::F32 | ValType::F64 | ValType::V128 => {}
         }
+    }
+
+    fn refty(&mut self, ty: RefType) {
+        self.heapty(ty.heap_type())
     }
 
     fn heapty(&mut self, ty: HeapType) {
@@ -491,7 +495,8 @@ impl<'a> Module<'a> {
             | HeapType::Eq
             | HeapType::Struct
             | HeapType::Array
-            | HeapType::I31 => {}
+            | HeapType::I31
+            | HeapType::Exn => {}
             HeapType::Concrete(i) => self.ty(i.as_module_index().unwrap()),
         }
     }
@@ -1000,6 +1005,10 @@ macro_rules! define_visit {
     };
 
     (mark_live $self:ident $arg:ident type_index) => {$self.ty($arg);};
+    (mark_live $self:ident $arg:ident array_type_index) => {$self.ty($arg);};
+    (mark_live $self:ident $arg:ident array_type_index_dst) => {$self.ty($arg);};
+    (mark_live $self:ident $arg:ident array_type_index_src) => {$self.ty($arg);};
+    (mark_live $self:ident $arg:ident struct_type_index) => {$self.ty($arg);};
     (mark_live $self:ident $arg:ident src_table) => {$self.table($arg);};
     (mark_live $self:ident $arg:ident dst_table) => {$self.table($arg);};
     (mark_live $self:ident $arg:ident table_index) => {$self.table($arg);};
@@ -1014,6 +1023,8 @@ macro_rules! define_visit {
     (mark_live $self:ident $arg:ident blockty) => {$self.blockty($arg);};
     (mark_live $self:ident $arg:ident ty) => {$self.valty($arg)};
     (mark_live $self:ident $arg:ident hty) => {$self.heapty($arg)};
+    (mark_live $self:ident $arg:ident from_ref_type) => {$self.refty($arg);};
+    (mark_live $self:ident $arg:ident to_ref_type) => {$self.refty($arg);};
     (mark_live $self:ident $arg:ident lane) => {};
     (mark_live $self:ident $arg:ident lanes) => {};
     (mark_live $self:ident $arg:ident flags) => {};
@@ -1025,7 +1036,14 @@ macro_rules! define_visit {
     (mark_live $self:ident $arg:ident tag_index) => {};
     (mark_live $self:ident $arg:ident targets) => {};
     (mark_live $self:ident $arg:ident data_index) => {};
+    (mark_live $self:ident $arg:ident array_data_index) => {};
     (mark_live $self:ident $arg:ident elem_index) => {};
+    (mark_live $self:ident $arg:ident array_elem_index) => {};
+    (mark_live $self:ident $arg:ident array_size) => {};
+    (mark_live $self:ident $arg:ident field_index) => {};
+    (mark_live $self:ident $arg:ident from_type_nullable) => {};
+    (mark_live $self:ident $arg:ident to_type_nullable) => {};
+    (mark_live $self:ident $arg:ident try_table) => {unimplemented!();};
 }
 
 impl<'a> VisitOperator<'a> for Module<'a> {
@@ -1114,6 +1132,7 @@ impl Encoder {
             HeapType::Struct => wasm_encoder::HeapType::Struct,
             HeapType::Array => wasm_encoder::HeapType::Array,
             HeapType::I31 => wasm_encoder::HeapType::I31,
+            HeapType::Exn => wasm_encoder::HeapType::Exn,
             HeapType::Concrete(idx) => {
                 wasm_encoder::HeapType::Concrete(self.types.remap(idx.as_module_index().unwrap()))
             }
@@ -1131,7 +1150,6 @@ impl Encoder {
 macro_rules! define_encode {
     ($(@$p:ident $op:ident $({ $($arg:ident: $argty:ty),* })? => $visit:ident)*) => {
         $(
-            #[allow(clippy::drop_copy)]
             fn $visit(&mut self $(, $($arg: $argty),*)?)  {
                 #[allow(unused_imports)]
                 use wasm_encoder::Instruction::*;
@@ -1170,6 +1188,10 @@ macro_rules! define_encode {
         let _ = $mem_byte;
         MemoryGrow($mem)
     });
+    (mk TryTable $try_table:ident) => ({
+        let _ = $try_table;
+        unimplemented_try_table()
+    });
     (mk I32Const $v:ident) => (I32Const($v));
     (mk I64Const $v:ident) => (I64Const($v));
     (mk F32Const $v:ident) => (F32Const(f32::from_bits($v.bits())));
@@ -1189,6 +1211,8 @@ macro_rules! define_encode {
     (map $self:ident $arg:ident memarg) => {$self.memarg($arg)};
     (map $self:ident $arg:ident blockty) => {$self.blockty($arg)};
     (map $self:ident $arg:ident hty) => {$self.heapty($arg)};
+    (map $self:ident $arg:ident from_ref_type) => {$self.refty($arg)};
+    (map $self:ident $arg:ident to_ref_type) => {$self.refty($arg)};
     (map $self:ident $arg:ident tag_index) => {$arg};
     (map $self:ident $arg:ident relative_depth) => {$arg};
     (map $self:ident $arg:ident function_index) => {$self.funcs.remap($arg)};
@@ -1201,19 +1225,34 @@ macro_rules! define_encode {
     (map $self:ident $arg:ident src_table) => {$self.tables.remap($arg)};
     (map $self:ident $arg:ident dst_table) => {$self.tables.remap($arg)};
     (map $self:ident $arg:ident type_index) => {$self.types.remap($arg)};
+    (map $self:ident $arg:ident array_type_index) => {$self.types.remap($arg)};
+    (map $self:ident $arg:ident array_type_index_dst) => {$self.types.remap($arg)};
+    (map $self:ident $arg:ident array_type_index_src) => {$self.types.remap($arg)};
+    (map $self:ident $arg:ident struct_type_index) => {$self.types.remap($arg)};
     (map $self:ident $arg:ident ty) => {$self.valty($arg)};
     (map $self:ident $arg:ident local_index) => {$arg};
     (map $self:ident $arg:ident lane) => {$arg};
     (map $self:ident $arg:ident lanes) => {$arg};
     (map $self:ident $arg:ident elem_index) => {$arg};
     (map $self:ident $arg:ident data_index) => {$arg};
+    (map $self:ident $arg:ident array_elem_index) => {$arg};
+    (map $self:ident $arg:ident array_data_index) => {$arg};
     (map $self:ident $arg:ident table_byte) => {$arg};
     (map $self:ident $arg:ident mem_byte) => {$arg};
     (map $self:ident $arg:ident value) => {$arg};
+    (map $self:ident $arg:ident array_size) => {$arg};
+    (map $self:ident $arg:ident field_index) => {$arg};
+    (map $self:ident $arg:ident from_type_nullable) => {$arg};
+    (map $self:ident $arg:ident to_type_nullable) => {$arg};
+    (map $self:ident $arg:ident try_table) => {$arg};
     (map $self:ident $arg:ident targets) => ((
         $arg.targets().map(|i| i.unwrap()).collect::<Vec<_>>().into(),
         $arg.default(),
     ));
+}
+
+fn unimplemented_try_table() -> wasm_encoder::Instruction<'static> {
+    unimplemented!()
 }
 
 impl<'a> VisitOperator<'a> for Encoder {

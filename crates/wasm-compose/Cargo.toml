@@ -1,6 +1,6 @@
 [package]
 name = "wasm-compose"
-version = "0.4.16"
+version.workspace = true
 edition.workspace = true
 authors = ["Peter Huene <peter@huene.dev>"]
 license = "Apache-2.0 WITH LLVM-exception"
@@ -10,9 +10,12 @@ homepage = "https://github.com/bytecodealliance/wasm-tools/tree/main/crates/wasm
 documentation = "https://docs.rs/wasm-compose"
 description = "A library for composing WebAssembly components."
 
+[lints]
+workspace = true
+
 [dependencies]
 wat = { workspace = true }
-wasm-encoder = { workspace = true }
+wasm-encoder = { workspace = true, features = ['wasmparser'] }
 wasmparser = { workspace = true }
 indexmap = { workspace = true, features = ["serde"] }
 anyhow = { workspace = true }

@@ -58,13 +58,14 @@ mod component;
 mod config;
 mod core;
 
-pub use crate::core::{
-    ConfiguredModule, InstructionKind, InstructionKinds, MaybeInvalidModule, Module,
-};
+pub use crate::core::{InstructionKind, InstructionKinds, Module};
 use arbitrary::{Result, Unstructured};
-pub use component::{Component, ConfiguredComponent};
-pub use config::{Config, DefaultConfig, SwarmConfig};
+pub use component::Component;
+pub use config::{Config, MemoryOffsetChoices};
 use std::{collections::HashSet, fmt::Write, str};
+
+#[cfg(feature = "_internal_cli")]
+pub use config::InternalOptionalConfig;
 
 /// Do something an arbitrary number of times.
 ///
@@ -107,10 +108,7 @@ pub(crate) fn limited_str<'a>(max_size: usize, u: &mut Unstructured<'a>) -> Resu
         Err(e) => {
             let i = e.valid_up_to();
             let valid = u.bytes(i).unwrap();
-            let s = unsafe {
-                debug_assert!(str::from_utf8(valid).is_ok());
-                str::from_utf8_unchecked(valid)
-            };
+            let s = str::from_utf8(valid).unwrap();
             Ok(s)
         }
     }

@@ -1,3 +1,4 @@
+mod branch_hinting;
 mod code;
 mod coredumps;
 mod custom;
@@ -9,6 +10,7 @@ mod functions;
 mod globals;
 mod imports;
 mod init;
+mod linking;
 mod memories;
 mod names;
 mod operators;
@@ -17,6 +19,7 @@ mod tables;
 mod tags;
 mod types;
 
+pub use self::branch_hinting::*;
 pub use self::code::*;
 pub use self::coredumps::*;
 pub use self::custom::*;
@@ -28,6 +31,7 @@ pub use self::functions::*;
 pub use self::globals::*;
 pub use self::imports::*;
 pub use self::init::*;
+pub use self::linking::*;
 pub use self::memories::*;
 pub use self::names::*;
 pub use self::operators::*;

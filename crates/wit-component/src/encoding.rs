@@ -92,9 +92,8 @@ use wit_parser::{
 
 const INDIRECT_TABLE_NAME: &str = "$imports";
 
-pub mod docs;
 mod wit;
-pub use wit::{encode, encode_component, encode_world};
+pub use wit::{encode, encode_world};
 
 mod types;
 use types::{InstanceTypeEncoder, RootTypeEncoder, ValtypeEncoder};
@@ -550,7 +549,7 @@ impl<'a> EncodingState<'a> {
         let info = &self.info.info;
 
         // Encode a shim instantiation if needed
-        let shims = self.encode_shim_instantiation();
+        let shims = self.encode_shim_instantiation()?;
 
         // For each instance import into the main module create a
         // pseudo-core-wasm-module via a bag-of-exports.
@@ -1117,7 +1116,7 @@ impl<'a> EncodingState<'a> {
         Ok(func_index)
     }
 
-    fn encode_shim_instantiation(&mut self) -> Shims<'a> {
+    fn encode_shim_instantiation(&mut self) -> Result<Shims<'a>> {
         let mut signatures = Vec::new();
         let mut ret = Shims::default();
         let info = &self.info.info;
@@ -1138,7 +1137,8 @@ impl<'a> EncodingState<'a> {
                 &required.funcs,
                 info.metadata,
                 &mut signatures,
-            );
+            )
+            .context("failed to register indirect shims for main module")?;
         }
 
         // For all required adapter modules a shim is created for each required
@@ -1159,7 +1159,10 @@ impl<'a> EncodingState<'a> {
                     &required.funcs,
                     adapter.info.metadata,
                     &mut signatures,
-                );
+                )
+                .with_context(|| {
+                    format!("failed to register indirect shims for adapter {adapter_name}")
+                })?;
             }
 
             self.encode_resource_dtors(
@@ -1205,7 +1208,7 @@ impl<'a> EncodingState<'a> {
         );
 
         if ret.list.is_empty() {
-            return ret;
+            return Ok(ret);
         }
 
         for shim in ret.list.iter() {
@@ -1302,7 +1305,7 @@ impl<'a> EncodingState<'a> {
         self.fixups_module_index = Some(self.component.core_module(&fixups));
         self.shim_instance_index = Some(self.component.core_instantiate(shim_module_index, []));
 
-        return ret;
+        return Ok(ret);
 
         fn to_wasm_type(ty: &wasmparser::ValType) -> WasmType {
             match ty {
@@ -1792,7 +1795,7 @@ impl<'a> Shims<'a> {
         required: &IndexSet<String>,
         metadata: &ModuleMetadata,
         sigs: &mut Vec<WasmSignature>,
-    ) {
+    ) -> Result<()> {
         let interface = if core_wasm_module == BARE_FUNC_MODULE_NAME {
             None
         } else {
@@ -1811,8 +1814,15 @@ impl<'a> Shims<'a> {
 
                 Lowering::Indirect { sig, options } => {
                     sigs.push(sig.clone());
-                    let encoding =
-                        metadata.import_encodings[&(core_wasm_module.to_string(), name.clone())];
+                    let encoding = *metadata
+                        .import_encodings
+                        .get(&(core_wasm_module.to_string(), name.clone()))
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "missing component metadata for import of \
+                                `{core_wasm_module}::{name}`"
+                            )
+                        })?;
                     self.list.push(Shim {
                         name: shim_name,
                         debug_name: format!("indirect-{core_wasm_module}-{name}"),
@@ -1827,6 +1837,7 @@ impl<'a> Shims<'a> {
                 }
             }
         }
+        Ok(())
     }
 }
 

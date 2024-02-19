@@ -136,69 +136,12 @@ fn find_tests() -> Vec<PathBuf> {
 /// Note that this is used to skip tests for all crates, not just one at a
 /// time. There's further filters applied while testing.
 fn skip_test(test: &Path, contents: &[u8]) -> bool {
-    let broken = &[
-        // I don't really have any idea what's going on with the expected syntax
-        // errors and expected error messages in these tests. They seem like
-        // they're from left field considering other conventions, so let's just
-        // ignore these until the proposal is further along.
-        "exception-handling/try_delegate.wast",
-        "exception-handling/try_catch.wast",
-        "exception-handling/throw.wast",
-        // This is an empty file which currently doesn't parse
-        "multi-memory/memory_copy1.wast",
-    ];
-    let test_path = test.to_str().unwrap().replace("\\", "/"); // for windows paths
-    if broken.iter().any(|x| test_path.contains(x)) {
-        return true;
-    }
-
-    if let Ok(contents) = str::from_utf8(contents) {
-        // Skip tests that are supposed to fail
-        if contents.contains(";; ERROR") {
-            return true;
-        }
-        // These tests are acually ones that run with the `*.wast` files from the
-        // official test suite, and we slurp those up elsewhere anyway.
-        if contents.contains("STDIN_FILE") {
-            return true;
-        }
-    }
-
+    // currently no tests are skipped
+    let _ = (test, contents);
     false
 }
 
-fn skip_validation(test: &Path) -> bool {
-    let broken = &[
-        "gc/gc-array.wat",
-        "gc/gc-struct.wat",
-        "/proposals/gc/array.wast",
-        "/proposals/gc/array_copy.wast",
-        "/proposals/gc/array_fill.wast",
-        "/proposals/gc/array_init_data.wast",
-        "/proposals/gc/array_init_elem.wast",
-        "/proposals/gc/binary-gc.wast",
-        "/proposals/gc/br_on_cast.wast",
-        "/proposals/gc/br_on_cast_fail.wast",
-        "/proposals/gc/extern.wast",
-        "/proposals/gc/global.wast",
-        "/proposals/gc/ref_cast.wast",
-        "/proposals/gc/ref_eq.wast",
-        "/proposals/gc/ref_test.wast",
-        "/proposals/gc/struct.wast",
-        "/proposals/gc/type-subtyping.wast",
-        "/proposals/exception-handling/try_table.wast",
-        "/proposals/exception-handling/throw_ref.wast",
-        "/proposals/exception-handling/ref_null.wast",
-        "/exnref/exnref.wast",
-        "/exnref/throw_ref.wast",
-        "/exnref/try_table.wast",
-        "obsolete-keywords.wast",
-    ];
-    let test_path = test.to_str().unwrap().replace("\\", "/"); // for windows paths
-    if broken.iter().any(|x| test_path.contains(x)) {
-        return true;
-    }
-
+fn skip_validation(_test: &Path) -> bool {
     false
 }
 
@@ -635,6 +578,7 @@ impl TestState {
             match part {
                 "testsuite" => {
                     features = WasmFeatures::default();
+                    features.component_model = false;
 
                     // NB: when these proposals are merged upstream in the spec
                     // repo then this should be removed. Currently this hasn't
@@ -654,6 +598,7 @@ impl TestState {
                     features.bulk_memory = false;
                     features.function_references = false;
                     features.gc = false;
+                    features.component_model = false;
                     features.component_model_values = false;
                 }
                 "floats-disabled.wast" => features.floats = false,
@@ -665,10 +610,7 @@ impl TestState {
                 "simd" => features.simd = true,
                 "exception-handling" => features.exceptions = true,
                 "tail-call" => features.tail_call = true,
-                "memory64" => {
-                    features.memory64 = true;
-                    features.reference_types = false;
-                }
+                "memory64" => features.memory64 = true,
                 "component-model" => features.component_model = true,
                 "multi-memory" => features.multi_memory = true,
                 "extended-const" => features.extended_const = true,
@@ -712,7 +654,8 @@ fn error_matches(error: &str, message: &str) -> bool {
     {
         return error.contains("expected ")
             || error.contains("constant out of range")
-            || error.contains("extra tokens remaining");
+            || error.contains("extra tokens remaining")
+            || error.contains("unimplemented validation of deprecated opcode");
     }
 
     if message == "illegal character" {
@@ -771,7 +714,9 @@ fn error_matches(error: &str, message: &str) -> bool {
             // the spec interpreter will read past section boundaries when
             // decoding, wasmparser won't, producing different errors.
             || error.contains("unexpected end-of-file")
-            || error.contains("malformed section id");
+            || error.contains("malformed section id")
+            // FIXME(WebAssembly/memory64#45)
+            || error.contains("trailing bytes at end of section");
     }
 
     if message == "integer too large" {
@@ -786,7 +731,9 @@ fn error_matches(error: &str, message: &str) -> bool {
             // were inflated to a larger size while not updating the binary
             // encoding of the size of the section.
             || error.contains("invalid var_u32: integer representation too long")
-            || error.contains("malformed section id");
+            || error.contains("malformed section id")
+            // FIXME(WebAssembly/memory64#45)
+            || error.contains("trailing bytes at end of section");
     }
 
     // wasmparser blames a truncated file here, the spec interpreter blames the
@@ -804,7 +751,7 @@ fn error_matches(error: &str, message: &str) -> bool {
     // a missing End before failing to validate the botched instruction.  However
     // wasmparser fails to validate the botched instruction first
     if message == "unexpected end" {
-        return error.contains("type index out of bounds");
+        return error.contains("type index out of bounds") || error.contains("END opcode expected");
     }
 
     if message == "unexpected content after last section" {
@@ -812,7 +759,8 @@ fn error_matches(error: &str, message: &str) -> bool {
     }
 
     if message == "malformed limits flags" {
-        return error.contains("invalid memory limits flags");
+        return error.contains("invalid memory limits flags")
+            || error.contains("invalid table resizable limits flags");
     }
 
     if message == "zero flag expected" {
@@ -854,6 +802,14 @@ fn error_matches(error: &str, message: &str) -> bool {
 
     if message == "sub type" {
         return error.contains("subtype");
+    }
+
+    if message.starts_with("unknown operator") {
+        return error.starts_with("unknown operator") || error.starts_with("unexpected token");
+    }
+
+    if message.starts_with("type mismatch") {
+        return error.starts_with("type mismatch");
     }
 
     return false;

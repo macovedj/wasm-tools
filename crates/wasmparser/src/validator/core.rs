@@ -9,12 +9,12 @@ use super::{
     operators::{ty_to_str, OperatorValidator, OperatorValidatorAllocations},
     types::{CoreTypeId, EntityType, RecGroupId, TypeAlloc, TypeList},
 };
-use crate::validator::types::TypeIdentifier;
 use crate::{
-    limits::*, BinaryReaderError, CompositeType, ConstExpr, Data, DataKind, Element, ElementKind,
-    ExternalKind, FuncType, Global, GlobalType, HeapType, MemoryType, PackedIndex, RecGroup,
-    RefType, Result, StorageType, SubType, Table, TableInit, TableType, TagType, TypeRef,
-    UnpackedIndex, ValType, VisitOperator, WasmFeatures, WasmModuleResources,
+    limits::*, validator::types::TypeIdentifier, BinaryReaderError, CompositeType, ConstExpr, Data,
+    DataKind, Element, ElementKind, ExternalKind, FuncType, Global, GlobalType, HeapType,
+    MemoryType, PackedIndex, RecGroup, RefType, Result, StorageType, SubType, Table, TableInit,
+    TableType, TagType, TypeRef, UnpackedIndex, ValType, VisitOperator, WasmFeatures,
+    WasmModuleResources,
 };
 use indexmap::IndexMap;
 use std::mem;
@@ -455,6 +455,26 @@ impl ModuleState {
 
             // These are valid const expressions with the gc proposal is
             // enabled.
+            (@visit $self:ident visit_struct_new $type_index:ident) => {{
+                $self.validate_gc("struct.new")?;
+                $self.validator().visit_struct_new($type_index)
+            }};
+            (@visit $self:ident visit_struct_new_default $type_index:ident) => {{
+                $self.validate_gc("struct.new_default")?;
+                $self.validator().visit_struct_new_default($type_index)
+            }};
+            (@visit $self:ident visit_array_new $type_index:ident) => {{
+                $self.validate_gc("array.new")?;
+                $self.validator().visit_array_new($type_index)
+            }};
+            (@visit $self:ident visit_array_new_default $type_index:ident) => {{
+                $self.validate_gc("array.new_default")?;
+                $self.validator().visit_array_new_default($type_index)
+            }};
+            (@visit $self:ident visit_array_new_fixed $type_index:ident $n:ident) => {{
+                $self.validate_gc("array.new_fixed")?;
+                $self.validator().visit_array_new_fixed($type_index, $n)
+            }};
             (@visit $self:ident visit_ref_i31) => {{
                 $self.validate_gc("ref.i31")?;
                 $self.validator().visit_ref_i31()
@@ -593,10 +613,10 @@ impl Module {
             debug_assert!(supertype_index.is_canonical());
             let sup_id = self.at_packed_index(types, rec_group, supertype_index, offset)?;
             if types[sup_id].is_final {
-                bail!(offset, "supertype must not be final");
+                bail!(offset, "sub type cannot have a final super type");
             }
             if !types.matches(id, sup_id) {
-                bail!(offset, "subtype must match supertype");
+                bail!(offset, "sub type must match super type");
             }
         }
 
@@ -961,7 +981,8 @@ impl Module {
             | HeapType::Eq
             | HeapType::Struct
             | HeapType::Array
-            | HeapType::I31 => return Ok(()),
+            | HeapType::I31
+            | HeapType::Exn => return Ok(()),
             HeapType::Concrete(type_index) => type_index,
         };
         match type_index {
@@ -1155,8 +1176,6 @@ struct OperatorValidatorResources<'a> {
 }
 
 impl WasmModuleResources for OperatorValidatorResources<'_> {
-    type FuncType = crate::FuncType;
-
     fn table_at(&self, at: u32) -> Option<TableType> {
         self.module.tables.get(at as usize).cloned()
     }
@@ -1165,7 +1184,7 @@ impl WasmModuleResources for OperatorValidatorResources<'_> {
         self.module.memories.get(at as usize).cloned()
     }
 
-    fn tag_at(&self, at: u32) -> Option<&Self::FuncType> {
+    fn tag_at(&self, at: u32) -> Option<&FuncType> {
         let type_id = *self.module.tags.get(at as usize)?;
         Some(self.types[type_id].unwrap_func())
     }
@@ -1174,12 +1193,9 @@ impl WasmModuleResources for OperatorValidatorResources<'_> {
         self.module.globals.get(at as usize).cloned()
     }
 
-    fn func_type_at(&self, at: u32) -> Option<&Self::FuncType> {
+    fn sub_type_at(&self, at: u32) -> Option<&SubType> {
         let id = *self.module.types.get(at as usize)?;
-        match &self.types[id].composite_type {
-            CompositeType::Func(f) => Some(f),
-            _ => None,
-        }
+        Some(&self.types[id])
     }
 
     fn type_id_of_function(&self, at: u32) -> Option<CoreTypeId> {
@@ -1187,13 +1203,17 @@ impl WasmModuleResources for OperatorValidatorResources<'_> {
         self.module.types.get(*type_index as usize).copied()
     }
 
-    fn type_of_function(&self, at: u32) -> Option<&Self::FuncType> {
+    fn type_of_function(&self, at: u32) -> Option<&FuncType> {
         let type_index = self.module.functions.get(at as usize)?;
-        self.func_type_at(*type_index)
+        Some(self.sub_type_at(*type_index)?.composite_type.unwrap_func())
     }
 
     fn check_heap_type(&self, t: &mut HeapType, offset: usize) -> Result<()> {
         self.module.check_heap_type(t, offset)
+    }
+
+    fn top_type(&self, heap_type: &HeapType) -> HeapType {
+        self.types.top_type(heap_type)
     }
 
     fn element_type_at(&self, at: u32) -> Option<RefType> {
@@ -1222,8 +1242,6 @@ impl WasmModuleResources for OperatorValidatorResources<'_> {
 pub struct ValidatorResources(pub(crate) Arc<Module>);
 
 impl WasmModuleResources for ValidatorResources {
-    type FuncType = crate::FuncType;
-
     fn table_at(&self, at: u32) -> Option<TableType> {
         self.0.tables.get(at as usize).cloned()
     }
@@ -1232,7 +1250,7 @@ impl WasmModuleResources for ValidatorResources {
         self.0.memories.get(at as usize).cloned()
     }
 
-    fn tag_at(&self, at: u32) -> Option<&Self::FuncType> {
+    fn tag_at(&self, at: u32) -> Option<&FuncType> {
         let id = *self.0.tags.get(at as usize)?;
         let types = self.0.snapshot.as_ref().unwrap();
         match &types[id].composite_type {
@@ -1245,13 +1263,10 @@ impl WasmModuleResources for ValidatorResources {
         self.0.globals.get(at as usize).cloned()
     }
 
-    fn func_type_at(&self, at: u32) -> Option<&Self::FuncType> {
+    fn sub_type_at(&self, at: u32) -> Option<&SubType> {
         let id = *self.0.types.get(at as usize)?;
         let types = self.0.snapshot.as_ref().unwrap();
-        match &types[id].composite_type {
-            CompositeType::Func(f) => Some(f),
-            _ => None,
-        }
+        Some(&types[id])
     }
 
     fn type_id_of_function(&self, at: u32) -> Option<CoreTypeId> {
@@ -1259,13 +1274,17 @@ impl WasmModuleResources for ValidatorResources {
         self.0.types.get(type_index as usize).copied()
     }
 
-    fn type_of_function(&self, at: u32) -> Option<&Self::FuncType> {
+    fn type_of_function(&self, at: u32) -> Option<&FuncType> {
         let type_index = *self.0.functions.get(at as usize)?;
-        self.func_type_at(type_index)
+        Some(self.sub_type_at(type_index)?.composite_type.unwrap_func())
     }
 
     fn check_heap_type(&self, t: &mut HeapType, offset: usize) -> Result<()> {
         self.0.check_heap_type(t, offset)
+    }
+
+    fn top_type(&self, heap_type: &HeapType) -> HeapType {
+        self.0.snapshot.as_ref().unwrap().top_type(heap_type)
     }
 
     fn element_type_at(&self, at: u32) -> Option<RefType> {

@@ -1,3 +1,4 @@
+use crate::annotation;
 use crate::core::*;
 use crate::encode::Encode;
 use crate::kw;
@@ -14,6 +15,20 @@ use std::mem;
 #[allow(missing_docs)]
 pub struct Expression<'a> {
     pub instrs: Box<[Instruction<'a>]>,
+    pub branch_hints: Vec<BranchHint>,
+}
+
+/// A `@metadata.code.branch_hint` in the code, associated with a If or BrIf
+/// This instruction is a placeholder and won't produce anything. Its purpose
+/// is to store the offset of the following instruction and check that
+/// it's followed by `br_if` or `if`.
+#[derive(Debug)]
+pub struct BranchHint {
+    /// Index of instructions in `instrs` field of `Expression` that this hint
+    /// appplies to.
+    pub instr_index: usize,
+    /// The value of this branch hint
+    pub value: u32,
 }
 
 impl<'a> Parse<'a> for Expression<'a> {
@@ -22,6 +37,7 @@ impl<'a> Parse<'a> for Expression<'a> {
         exprs.parse(parser)?;
         Ok(Expression {
             instrs: exprs.instrs.into(),
+            branch_hints: exprs.branch_hints,
         })
     }
 }
@@ -47,6 +63,7 @@ impl<'a> Expression<'a> {
         exprs.parse_folded_instruction(parser)?;
         Ok(Expression {
             instrs: exprs.instrs.into(),
+            branch_hints: exprs.branch_hints,
         })
     }
 }
@@ -66,6 +83,11 @@ struct ExpressionParser<'a> {
     /// Descriptor of all our nested s-expr blocks. This only happens when
     /// instructions themselves are nested.
     stack: Vec<Level<'a>>,
+
+    /// Related to the branch hints proposal.
+    /// Will be used later to collect the offsets in the final binary.
+    /// <(index of branch instructions, BranchHintAnnotation)>
+    branch_hints: Vec<BranchHint>,
 }
 
 enum Paren {
@@ -90,12 +112,8 @@ enum Level<'a> {
     /// nested block.
     IfArm,
 
-    /// Similar to `If` but for `Try` statements, which has simpler parsing
-    /// state to track.
-    Try(Try<'a>),
-
-    /// Similar to `IfArm` but for `(do ...)` and `(catch ...)` blocks.
-    TryArm,
+    /// This means we are finishing the parsing of a branch hint annotation.
+    BranchHint,
 }
 
 /// Possible states of "what is currently being parsed?" in an `if` expression.
@@ -112,21 +130,6 @@ enum If<'a> {
     Else,
 }
 
-/// Possible state of "what should be parsed next?" in a `try` expression.
-enum Try<'a> {
-    /// Next thing to parse is the `do` block.
-    Do(Instruction<'a>),
-    /// Next thing to parse is `catch`/`catch_all`, or `delegate`.
-    CatchOrDelegate,
-    /// Next thing to parse is a `catch` block or `catch_all`.
-    Catch,
-    /// Finished parsing like the `End` case, but does not push `end` opcode.
-    Delegate,
-    /// This `try` statement has finished parsing and if anything remains it's a
-    /// syntax error.
-    End,
-}
-
 impl<'a> ExpressionParser<'a> {
     fn parse(&mut self, parser: Parser<'a>) -> Result<()> {
         // Here we parse instructions in a loop, and we do not recursively
@@ -141,7 +144,7 @@ impl<'a> ExpressionParser<'a> {
             // As a small ease-of-life adjustment here, if we're parsing inside
             // of an `if block then we require that all sub-components are
             // s-expressions surrounded by `(` and `)`, so verify that here.
-            if let Some(Level::If(_)) | Some(Level::Try(_)) = self.stack.last() {
+            if let Some(Level::If(_)) = self.stack.last() {
                 if !parser.is_empty() && !parser.peek::<LParen>()? {
                     return Err(parser.error("expected `(`"));
                 }
@@ -167,18 +170,22 @@ impl<'a> ExpressionParser<'a> {
                     if self.handle_if_lparen(parser)? {
                         continue;
                     }
-                    // Second, we handle `try` parsing, which is simpler than
-                    // `if` but more complicated than, e.g., `block`.
-                    if self.handle_try_lparen(parser)? {
+
+                    // Handle the case of a branch hint annotation
+                    if parser.peek::<annotation::metadata_code_branch_hint>()? {
+                        self.parse_branch_hint(parser)?;
+                        self.stack.push(Level::BranchHint);
                         continue;
                     }
+
                     match parser.parse()? {
                         // If block/loop show up then we just need to be sure to
                         // push an `end` instruction whenever the `)` token is
                         // seen
                         i @ Instruction::Block(_)
                         | i @ Instruction::Loop(_)
-                        | i @ Instruction::Let(_) => {
+                        | i @ Instruction::Let(_)
+                        | i @ Instruction::TryTable(_) => {
                             self.instrs.push(i);
                             self.stack.push(Level::EndWith(Instruction::End(None)));
                         }
@@ -188,12 +195,6 @@ impl<'a> ExpressionParser<'a> {
                         // parsing handle the remaining items.
                         i @ Instruction::If(_) => {
                             self.stack.push(Level::If(If::Clause(i)));
-                        }
-
-                        // Parsing a `try` is easier than `if` but we also push
-                        // a `Try` scope to handle the required nested blocks.
-                        i @ Instruction::Try(_) => {
-                            self.stack.push(Level::Try(Try::Do(i)));
                         }
 
                         // Anything else means that we're parsing a nested form
@@ -209,7 +210,7 @@ impl<'a> ExpressionParser<'a> {
                 Paren::Right => match self.stack.pop().unwrap() {
                     Level::EndWith(i) => self.instrs.push(i),
                     Level::IfArm => {}
-                    Level::TryArm => {}
+                    Level::BranchHint => {}
 
                     // If an `if` statement hasn't parsed the clause or `then`
                     // block, then that's an error because there weren't enough
@@ -221,21 +222,9 @@ impl<'a> ExpressionParser<'a> {
                     Level::If(_) => {
                         self.instrs.push(Instruction::End(None));
                     }
-
-                    // The `do` clause is required in a `try` statement, so
-                    // we will signal that error here. Otherwise, terminate with
-                    // an `end` or `delegate` instruction.
-                    Level::Try(Try::Do(_)) => {
-                        return Err(parser.error("previous `try` had no `do`"));
-                    }
-                    Level::Try(Try::Delegate) => {}
-                    Level::Try(_) => {
-                        self.instrs.push(Instruction::End(None));
-                    }
                 },
             }
         }
-
         Ok(())
     }
 
@@ -332,91 +321,22 @@ impl<'a> ExpressionParser<'a> {
         }
     }
 
-    /// Handles parsing of a `try` statement. A `try` statement is simpler
-    /// than an `if` as the syntactic form is:
-    ///
-    /// ```wat
-    /// (try (do $do) (catch $tag $catch))
-    /// ```
-    ///
-    /// where the `do` and `catch` keywords are mandatory, even for an empty
-    /// $do or $catch.
-    ///
-    /// Returns `true` if the rest of the arm above should be skipped, or
-    /// `false` if we should parse the next item as an instruction (because we
-    /// didn't handle the lparen here).
-    fn handle_try_lparen(&mut self, parser: Parser<'a>) -> Result<bool> {
-        // Only execute the code below if there's a `Try` listed last.
-        let i = match self.stack.last_mut() {
-            Some(Level::Try(i)) => i,
-            _ => return Ok(false),
+    fn parse_branch_hint(&mut self, parser: Parser<'a>) -> Result<()> {
+        parser.parse::<annotation::metadata_code_branch_hint>()?;
+
+        let hint = parser.parse::<String>()?;
+
+        let value = match hint.as_bytes() {
+            [0] => 0,
+            [1] => 1,
+            _ => return Err(parser.error("invalid value for branch hint")),
         };
 
-        // Try statements must start with a `do` block.
-        if let Try::Do(try_instr) = i {
-            let instr = mem::replace(try_instr, Instruction::End(None));
-            self.instrs.push(instr);
-            if parser.parse::<Option<kw::r#do>>()?.is_some() {
-                // The state is advanced here only if the parse succeeds in
-                // order to strictly require the keyword.
-                *i = Try::CatchOrDelegate;
-                self.stack.push(Level::TryArm);
-                return Ok(true);
-            }
-            // We return here and continue parsing instead of raising an error
-            // immediately because the missing keyword will be caught more
-            // generally in the `Paren::Right` case in `parse`.
-            return Ok(false);
-        }
-
-        // After a try's `do`, there are several possible kinds of handlers.
-        if let Try::CatchOrDelegate = i {
-            // `catch` may be followed by more `catch`s or `catch_all`.
-            if parser.parse::<Option<kw::catch>>()?.is_some() {
-                let evt = parser.parse::<Index<'a>>()?;
-                self.instrs.push(Instruction::Catch(evt));
-                *i = Try::Catch;
-                self.stack.push(Level::TryArm);
-                return Ok(true);
-            }
-            // `catch_all` can only come at the end and has no argument.
-            if parser.parse::<Option<kw::catch_all>>()?.is_some() {
-                self.instrs.push(Instruction::CatchAll);
-                *i = Try::End;
-                self.stack.push(Level::TryArm);
-                return Ok(true);
-            }
-            // `delegate` has an index, and also ends the block like `end`.
-            if parser.parse::<Option<kw::delegate>>()?.is_some() {
-                let depth = parser.parse::<Index<'a>>()?;
-                self.instrs.push(Instruction::Delegate(depth));
-                *i = Try::Delegate;
-                match self.paren(parser)? {
-                    Paren::Left | Paren::None => return Ok(false),
-                    Paren::Right => return Ok(true),
-                }
-            }
-            return Err(parser.error("expected a `catch`, `catch_all`, or `delegate`"));
-        }
-
-        if let Try::Catch = i {
-            if parser.parse::<Option<kw::catch>>()?.is_some() {
-                let evt = parser.parse::<Index<'a>>()?;
-                self.instrs.push(Instruction::Catch(evt));
-                *i = Try::Catch;
-                self.stack.push(Level::TryArm);
-                return Ok(true);
-            }
-            if parser.parse::<Option<kw::catch_all>>()?.is_some() {
-                self.instrs.push(Instruction::CatchAll);
-                *i = Try::End;
-                self.stack.push(Level::TryArm);
-                return Ok(true);
-            }
-            return Err(parser.error("unexpected items after `catch`"));
-        }
-
-        Err(parser.error("unexpected token: too many payloads inside of `(try)`"))
+        self.branch_hints.push(BranchHint {
+            instr_index: self.instrs.len(),
+            value,
+        });
+        Ok(())
     }
 }
 
@@ -1142,16 +1062,16 @@ instructions! {
         F64x2PromoteLowF32x4 : [0xfd, 95] : "f64x2.promote_low_f32x4",
 
         // Exception handling proposal
+        ThrowRef : [0x0a] : "throw_ref",
+        TryTable(TryTable<'a>) : [0x1f] : "try_table",
+        Throw(Index<'a>) : [0x08] : "throw",
+
+        // Deprecated exception handling optocdes
         Try(Box<BlockType<'a>>) : [0x06] : "try",
         Catch(Index<'a>) : [0x07] : "catch",
-        Throw(Index<'a>) : [0x08] : "throw",
         Rethrow(Index<'a>) : [0x09] : "rethrow",
         Delegate(Index<'a>) : [0x18] : "delegate",
         CatchAll : [0x19] : "catch_all",
-
-        // Exception handling proposal extension for 'exnref'
-        ThrowRef : [0x0a] : "throw_ref",
-        TryTable(TryTable<'a>) : [0x1f] : "try_table",
 
         // Relaxed SIMD proposal
         I8x16RelaxedSwizzle : [0xfd, 0x100]: "i8x16.relaxed_swizzle",
@@ -1235,10 +1155,11 @@ impl<'a> Parse<'a> for TryTable<'a> {
         let block = parser.parse()?;
 
         let mut catches = Vec::new();
-        while parser.peek2::<kw::catch>()?
-            || parser.peek2::<kw::catch_ref>()?
-            || parser.peek2::<kw::catch_all>()?
-            || parser.peek2::<kw::catch_all_ref>()?
+        while parser.peek::<LParen>()?
+            && (parser.peek2::<kw::catch>()?
+                || parser.peek2::<kw::catch_ref>()?
+                || parser.peek2::<kw::catch_all>()?
+                || parser.peek2::<kw::catch_all_ref>()?)
         {
             catches.push(parser.parens(|p| {
                 let kind = if parser.peek::<kw::catch_ref>()? {

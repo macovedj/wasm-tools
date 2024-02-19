@@ -39,9 +39,7 @@ use crate::{
     Error, ErrorKind, ModuleInfo, Result, WasmMutate,
 };
 use egg::{Rewrite, Runner};
-use rand::{prelude::SmallRng, Rng};
-use std::ops::Range;
-use std::{borrow::Cow, fmt::Debug};
+use rand::Rng;
 use wasm_encoder::{CodeSection, ConstExpr, Function, GlobalSection, Module, ValType};
 use wasmparser::{CodeSectionReader, FunctionBody, GlobalSectionReader, LocalsReader};
 
@@ -444,38 +442,6 @@ impl Mutator for PeepholeMutator {
 
     fn can_mutate<'a>(&self, config: &'a WasmMutate) -> bool {
         config.info().has_code() && config.info().num_local_functions() > 0
-    }
-}
-
-impl Debug for Box<dyn CodeMutator> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Code mutator").finish()
-    }
-}
-
-pub(crate) trait CodeMutator {
-    fn mutate(
-        &self,
-        config: &WasmMutate,
-        rnd: &mut SmallRng,
-        operator_index: usize,
-        operators: Vec<OperatorAndByteOffset>,
-        funcreader: FunctionBody,
-        body_range: Range<usize>,
-        function_data: &[u8],
-    ) -> Result<Function>;
-
-    /// Returns if this mutator can be applied to the opcode at index i
-    fn can_mutate<'a>(
-        &self,
-        config: &'a WasmMutate,
-        operators: &[OperatorAndByteOffset<'a>],
-        at: usize,
-    ) -> Result<bool>;
-
-    /// Provides the name of the mutator, mostly used for debugging purposes
-    fn name(&self) -> Cow<'static, str> {
-        std::any::type_name::<Self>().into()
     }
 }
 
@@ -1586,6 +1552,24 @@ mod tests {
         );
     }
 
+    #[test]
+    fn remove_local_set() {
+        test_default_peephole_mutator(
+            "(module (func (local i32) (local.set 0 (i32.const 0))))",
+            "(module (func (local i32) nop))",
+            4,
+        );
+    }
+
+    #[test]
+    fn remove_local_tee() {
+        test_default_peephole_mutator(
+            "(module (func (local i32) (local.tee 0 (i32.const 0)) drop))",
+            "(module (func (local i32) (i32.const 0) drop))",
+            4,
+        );
+    }
+
     fn test_peephole_mutator(
         original: &str,
         rules: &[Rewrite<super::Lang, PeepholeMutationAnalysis>],
@@ -1597,6 +1581,19 @@ mod tests {
         config.seed(seed);
 
         let mutator = PeepholeMutator::new_with_rules(3, rules.to_vec());
+        config.match_mutation(original, mutator, expected);
+    }
+
+    fn test_default_peephole_mutator(original: &str, expected: &str, seed: u64) {
+        let original_wasm = wat::parse_str(original).unwrap();
+        let mut config = WasmMutate::default();
+        config.fuel(10000);
+        config.seed(seed);
+        config.info = Some(ModuleInfo::new(&original_wasm).unwrap());
+
+        let mut mutator = PeepholeMutator::new(3);
+        let rules = mutator.get_rules(&config);
+        mutator.rules = Some(rules);
         config.match_mutation(original, mutator, expected);
     }
 }

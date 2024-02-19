@@ -1,6 +1,6 @@
 [package]
 name = "wasm-encoder"
-version = "0.38.1"
+version.workspace = true
 authors = ["Nick Fitzgerald <fitzgen@gmail.com>"]
 edition.workspace = true
 license = "Apache-2.0 WITH LLVM-exception"
@@ -11,6 +11,9 @@ documentation = "https://docs.rs/wasm-encoder"
 description = """
 A low-level WebAssembly encoder.
 """
+
+[lints]
+workspace = true
 
 [dependencies]
 leb128 = { workspace = true }

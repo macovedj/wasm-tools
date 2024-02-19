@@ -47,13 +47,10 @@ use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
 use std::borrow::Cow;
 use wasm_encoder::{
-    ComponentBuilder, ComponentExportKind, ComponentType, ComponentTypeRef, CustomSection, Encode,
+    ComponentBuilder, ComponentExportKind, ComponentType, ComponentTypeRef, CustomSection,
 };
 use wasm_metadata::Producers;
-use wasmparser::types::ComponentAnyTypeId;
-use wasmparser::{
-    BinaryReader, ComponentExternalKind, Parser, Payload, ValidPayload, Validator, WasmFeatures,
-};
+use wasmparser::{BinaryReader, Parser, Payload};
 use wit_parser::{Package, PackageName, Resolve, World, WorldId, WorldItem};
 
 const CURRENT_VERSION: u8 = 0x04;
@@ -170,124 +167,42 @@ pub fn encode(
     world: WorldId,
     string_encoding: StringEncoding,
     extra_producers: Option<&Producers>,
-    use_next_encoding: Option<bool>,
 ) -> Result<Vec<u8>> {
-    enum EncodingFormat {
-        // The encoding of the previous format was:
-        //
-        //  * A version byte, at the time 0x03.
-        //  * A string-encoding byte.
-        //  * A string which is the name of a world.
-        //  * A wasm-encoded WIT package which contains the previous world.
-        //
-        // Note that this branch will be deleted in the near future.
-        Previous,
+    let ty = crate::encoding::encode_world(resolve, world)?;
 
-        // The current format.
-        Next,
+    let world = &resolve.worlds[world];
+    let mut outer_ty = ComponentType::new();
+    outer_ty.ty().component(&ty);
+    outer_ty.export(
+        &resolve.id_of_name(world.package.unwrap(), &world.name),
+        ComponentTypeRef::Component(0),
+    );
+
+    let mut builder = ComponentBuilder::default();
+
+    let string_encoding = encode_string_encoding(string_encoding);
+    builder.custom_section(&CustomSection {
+        name: CUSTOM_SECTION_NAME.into(),
+        data: Cow::Borrowed(&[CURRENT_VERSION, string_encoding]),
+    });
+
+    let ty = builder.type_component(&outer_ty);
+    builder.export(&world.name, ComponentExportKind::Type, ty, None);
+
+    let mut producers = crate::base_producers();
+    if let Some(p) = extra_producers {
+        producers.merge(&p);
     }
-
-    let format = match use_next_encoding {
-        Some(true) => EncodingFormat::Next,
-        Some(false) => EncodingFormat::Previous,
-        None => match std::env::var("WIT_COMPONENT_NEW_ENCODE") {
-            Ok(s) if s == "0" => EncodingFormat::Previous,
-            _ => EncodingFormat::Next,
-        },
-    };
-
-    let ret = match format {
-        EncodingFormat::Previous => {
-            let world = &resolve.worlds[world];
-            let pkg = &resolve.packages[world.package.unwrap()];
-            assert!(
-                resolve
-                    .packages
-                    .iter()
-                    .filter(|(_, p)| p.name == pkg.name)
-                    .count()
-                    == 1
-            );
-
-            let mut ret = Vec::new();
-            ret.push(0x03);
-            ret.push(encode_string_encoding(string_encoding));
-            world.name.encode(&mut ret);
-            // This appends a wasm binary encoded Component to the ret:
-            let mut component_builder =
-                crate::encoding::encode_component(None, resolve, world.package.unwrap())?;
-
-            let mut producers = crate::base_producers();
-            if let Some(p) = extra_producers {
-                producers.merge(&p);
-            }
-            component_builder.raw_custom_section(&producers.raw_custom_section());
-
-            ret.extend(component_builder.finish());
-            ret
-        }
-        EncodingFormat::Next => {
-            let ty = crate::encoding::encode_world(resolve, world)?;
-
-            let world = &resolve.worlds[world];
-            let mut outer_ty = ComponentType::new();
-            outer_ty.ty().component(&ty);
-            outer_ty.export(
-                &resolve.id_of_name(world.package.unwrap(), &world.name),
-                ComponentTypeRef::Component(0),
-            );
-
-            let mut builder = ComponentBuilder::default();
-
-            let string_encoding = encode_string_encoding(string_encoding);
-            builder.custom_section(&CustomSection {
-                name: CUSTOM_SECTION_NAME.into(),
-                data: Cow::Borrowed(&[CURRENT_VERSION, string_encoding]),
-            });
-
-            let ty = builder.type_component(&outer_ty);
-            builder.export(&world.name, ComponentExportKind::Type, ty, None);
-
-            let mut producers = crate::base_producers();
-            if let Some(p) = extra_producers {
-                producers.merge(&p);
-            }
-            builder.raw_custom_section(&producers.raw_custom_section());
-            builder.finish()
-        }
-    };
-
-    Ok(ret)
+    builder.raw_custom_section(&producers.raw_custom_section());
+    Ok(builder.finish())
 }
 
 fn decode_custom_section(wasm: &[u8]) -> Result<(Resolve, WorldId, StringEncoding)> {
-    let mut validator = Validator::new_with_features(WasmFeatures::all());
-    let mut exports = Vec::new();
-    let mut depth = 1;
-    let mut types = None;
+    let (resolve, world) = wit_parser::decoding::decode_world(wasm)?;
     let mut custom_section = None;
 
     for payload in Parser::new(0).parse_all(wasm) {
-        let payload = payload?;
-
-        match validator.payload(&payload)? {
-            ValidPayload::Ok => {}
-            ValidPayload::Parser(_) => depth += 1,
-            ValidPayload::End(t) => {
-                depth -= 1;
-                if depth == 0 {
-                    types = Some(t);
-                }
-            }
-            ValidPayload::Func(..) => {}
-        }
-
-        match payload {
-            Payload::ComponentExportSection(s) if depth == 1 => {
-                for export in s {
-                    exports.push(export?);
-                }
-            }
+        match payload? {
             Payload::CustomSection(s) if s.name() == CUSTOM_SECTION_NAME => {
                 custom_section = Some(s.data());
             }
@@ -302,23 +217,6 @@ fn decode_custom_section(wasm: &[u8]) -> Result<(Resolve, WorldId, StringEncodin
             "custom section `{CUSTOM_SECTION_NAME}` uses format {version} but only {CURRENT_VERSION} is supported"
         ),
     };
-
-    if exports.len() != 1 {
-        bail!("expected one export in component");
-    }
-    if exports[0].kind != ComponentExternalKind::Type {
-        bail!("expected an export of a type");
-    }
-    if exports[0].ty.is_some() {
-        bail!("expected an un-ascribed exported type");
-    }
-    let types = types.as_ref().unwrap();
-    let ty = match types.component_any_type_at(exports[0].index) {
-        ComponentAnyTypeId::Component(c) => c,
-        _ => bail!("expected an exported component type"),
-    };
-
-    let (resolve, world) = crate::decoding::decode_world(types, ty)?;
     Ok((resolve, world, string_encoding))
 }
 

@@ -376,7 +376,6 @@ pub mod kw {
     custom_keyword!(after);
     custom_keyword!(alias);
     custom_keyword!(any);
-    custom_keyword!(anyfunc);
     custom_keyword!(anyref);
     custom_keyword!(arg);
     custom_keyword!(array);
@@ -539,4 +538,5 @@ pub mod annotation {
     annotation!(name);
     annotation!(producers);
     annotation!(dylink_0 = "dylink.0");
+    annotation!(metadata_code_branch_hint = "metadata.code.branch_hint");
 }

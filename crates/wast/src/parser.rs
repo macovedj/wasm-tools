@@ -2,11 +2,10 @@
 //!
 //! This module contains the traits, abstractions, and utilities needed to
 //! define custom parsers for WebAssembly text format items. This module exposes
-//! a recursive descent parsing strategy and centers around the
-//! [`Parse`](crate::parser::Parse) trait for defining new fragments of
-//! WebAssembly text syntax.
+//! a recursive descent parsing strategy and centers around the [`Parse`] trait
+//! for defining new fragments of WebAssembly text syntax.
 //!
-//! The top-level [`parse`](crate::parser::parse) function can be used to fully parse AST fragments:
+//! The top-level [`parse`] function can be used to fully parse AST fragments:
 //!
 //! ```
 //! use wast::Wat;
@@ -20,8 +19,7 @@
 //! # }
 //! ```
 //!
-//! and you can also define your own new syntax with the
-//! [`Parse`](crate::parser::Parse) trait:
+//! and you can also define your own new syntax with the [`Parse`] trait:
 //!
 //! ```
 //! use wast::kw;
@@ -67,6 +65,7 @@
 use crate::lexer::{Float, Integer, Lexer, Token, TokenKind};
 use crate::token::Span;
 use crate::Error;
+use bumpalo::Bump;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -305,7 +304,7 @@ pub struct ParseBuffer<'a> {
     cur: Cell<Position>,
     known_annotations: RefCell<HashMap<String, usize>>,
     depth: Cell<usize>,
-    strings: RefCell<Vec<Box<[u8]>>>,
+    strings: Bump,
 }
 
 /// The current position within a `Lexer` that we're at. This simultaneously
@@ -398,14 +397,7 @@ impl ParseBuffer<'_> {
     /// This will return a reference to `s`, but one that's safely rooted in the
     /// `Parser`.
     fn push_str(&self, s: Vec<u8>) -> &[u8] {
-        let s = Box::from(s);
-        let ret = &*s as *const [u8];
-        self.strings.borrow_mut().push(s);
-        // This should be safe in that the address of `ret` isn't changing as
-        // it's on the heap itself. Additionally the lifetime of this return
-        // value is tied to the lifetime of `self` (nothing is deallocated
-        // early), so it should be safe to say the two have the same lifetime.
-        unsafe { &*ret }
+        self.strings.alloc_slice_copy(&s)
     }
 
     /// Lexes the next "significant" token from the `pos` specified.

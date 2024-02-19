@@ -1,12 +1,14 @@
 use super::{Printer, State};
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use std::fmt::Write;
-use wasmparser::{BlockType, BrTable, MemArg, VisitOperator};
+use wasmparser::{BlockType, BrTable, Catch, MemArg, RefType, TryTable, VisitOperator};
 
 pub struct PrintOperator<'a, 'b> {
     pub(super) printer: &'a mut Printer,
     nesting_start: u32,
     state: &'b mut State,
+    label: u32,
+    label_indices: Vec<u32>,
 }
 
 impl<'a, 'b> PrintOperator<'a, 'b> {
@@ -15,6 +17,8 @@ impl<'a, 'b> PrintOperator<'a, 'b> {
             nesting_start: printer.nesting,
             printer,
             state,
+            label: 0,
+            label_indices: Vec::new(),
         }
     }
 
@@ -26,35 +30,84 @@ impl<'a, 'b> PrintOperator<'a, 'b> {
         &mut self.printer.result
     }
 
-    fn blockty(&mut self, ty: BlockType) -> Result<()> {
-        if let Some(name) = self
-            .state
-            .core
-            .label_names
-            .get(&(self.state.core.funcs, self.state.core.labels))
-        {
-            name.write(&mut self.printer.result);
-            self.printer.result.push(' ');
+    /// This is called after every instruction and is used to manage the
+    /// `label_indices` stack.
+    fn update_label_stack(&mut self, kind: OpKind) {
+        match kind {
+            OpKind::Normal => {}
+
+            // The previous label was just defined, so add it to the stack.
+            OpKind::BlockStart => {
+                self.label_indices.push(self.label - 1);
+            }
+
+            // The previous label is being defined at the same depth as the
+            // latest label, meaning it's overwriting its entry.
+            OpKind::BlockMid => {
+                if let Some(last) = self.label_indices.last_mut() {
+                    *last = self.label - 1;
+                }
+            }
+
+            // Label is out of scope so remove it from the stack.
+            OpKind::End | OpKind::Delegate => {
+                self.label_indices.pop();
+            }
         }
+    }
+
+    fn blockty(&mut self, ty: BlockType) -> Result<()> {
+        let has_name = self.blockty_without_label_comment(ty)?;
+        self.maybe_blockty_label_comment(has_name)
+    }
+
+    fn blockty_without_label_comment(&mut self, ty: BlockType) -> Result<bool> {
+        // Trim the trailing space, if any.
+        if self.result().ends_with(" ") {
+            self.result().pop();
+        }
+
+        let key = (self.state.core.funcs, self.label);
+        let has_name = match self.state.core.label_names.index_to_name.get(&key) {
+            Some(name) => {
+                self.printer.result.push_str(" ");
+                name.write(&mut self.printer.result);
+                true
+            }
+            None if self.printer.name_unnamed => {
+                let depth = self.cur_depth();
+                write!(self.result(), " $#label{depth}")?;
+                true
+            }
+            None => false,
+        };
         match ty {
             BlockType::Empty => {}
             BlockType::Type(t) => {
-                self.push_str("(result ");
+                self.push_str(" (result ");
                 self.printer.print_valtype(t)?;
-                self.push_str(") ");
+                self.push_str(")");
             }
             BlockType::FuncType(idx) => {
+                self.push_str(" ");
                 self.printer
                     .print_core_functype_idx(self.state, idx, None)?;
-                self.printer.result.push(' ');
             }
         }
-        // Note that 1 is added to the current depth here since if a block type
-        // is being printed then a block is being created which will increase
-        // the label depth of the block itself.
-        let depth = self.cur_depth();
-        write!(self.result(), ";; label = @{}", depth + 1)?;
-        self.state.core.labels += 1;
+        Ok(has_name)
+    }
+
+    fn maybe_blockty_label_comment(&mut self, has_name: bool) -> Result<()> {
+        if !has_name {
+            let depth = self.cur_depth();
+            self.push_str(" ");
+            // Note that 1 is added to the current depth here since if a block
+            // type is being printed then a block is being created which will
+            // increase the label depth of the block itself.
+            write!(self.result(), ";; label = @{}", depth + 1)?;
+        }
+
+        self.label += 1;
         Ok(())
     }
 
@@ -62,21 +115,60 @@ impl<'a, 'b> PrintOperator<'a, 'b> {
         self.printer.nesting - self.nesting_start
     }
 
-    fn label(&self, relative: u32) -> String {
-        match self.cur_depth().checked_sub(relative) {
-            Some(i) => format!("@{}", i),
-            None => " INVALID ".to_string(),
-        }
-    }
-
     fn tag_index(&mut self, index: u32) -> Result<()> {
-        write!(self.result(), "{index}")?;
+        self.printer.print_idx(&self.state.core.tag_names, index)?;
         Ok(())
     }
 
     fn relative_depth(&mut self, depth: u32) -> Result<()> {
-        let label = self.label(depth);
-        write!(self.result(), "{depth} (;{label};)")?;
+        match self.cur_depth().checked_sub(depth) {
+            // If this relative depth is in-range relative to the current depth,
+            // then try to print a name for this label. Label names are tracked
+            // as a stack where the depth matches `cur_depth` roughly, but label
+            // names don't account for the function name so offset by one more
+            // here.
+            Some(i) => {
+                let name = i
+                    .checked_sub(1)
+                    .and_then(|idx| self.label_indices.get(idx as usize).copied())
+                    .and_then(|label_idx| {
+                        let key = (self.state.core.funcs, label_idx);
+                        self.state.core.label_names.index_to_name.get(&key)
+                    });
+
+                // This is a bit tricky, but if there's a shallower label than
+                // this target which shares the same name then we can't print
+                // the name-based version. Names resolve to the nearest label
+                // in the case of shadowing, which would be the wrong behavior
+                // here. All that can be done is to print the index down below
+                // instead.
+                let name = name.and_then(|name| {
+                    for other_label in self.label_indices[i as usize..].iter() {
+                        let key = (self.state.core.funcs, *other_label);
+                        if let Some(other) = self.state.core.label_names.index_to_name.get(&key) {
+                            if name.name == other.name {
+                                return None;
+                            }
+                        }
+                    }
+                    Some(name)
+                });
+
+                match name {
+                    Some(name) => name.write(&mut self.printer.result),
+
+                    None if self.printer.name_unnamed => write!(self.result(), "$#label{i}")?,
+
+                    // If this label has some name also print its pseudo-name as
+                    // `@N` to help match things up in the text format.
+                    None => write!(self.result(), "{depth} (;@{i};)")?,
+                }
+            }
+
+            // This branch is out of range. Print the raw integer and then leave
+            // a hopefully-helpful comment indicating that it's going nowhere.
+            None => write!(self.result(), "{depth} (; INVALID ;)")?,
+        }
         Ok(())
     }
 
@@ -120,11 +212,53 @@ impl<'a, 'b> PrintOperator<'a, 'b> {
         self.printer.print_core_type_ref(self.state, idx)
     }
 
+    fn array_type_index(&mut self, idx: u32) -> Result<()> {
+        self.printer.print_idx(&self.state.core.type_names, idx)
+    }
+
+    fn array_type_index_dst(&mut self, idx: u32) -> Result<()> {
+        self.printer.print_idx(&self.state.core.type_names, idx)
+    }
+
+    fn array_type_index_src(&mut self, idx: u32) -> Result<()> {
+        self.printer.print_idx(&self.state.core.type_names, idx)
+    }
+
+    fn array_size(&mut self, array_size: u32) -> Result<()> {
+        write!(&mut self.printer.result, "{array_size}")?;
+        Ok(())
+    }
+
+    fn struct_type_index(&mut self, idx: u32) -> Result<()> {
+        self.printer.print_idx(&self.state.core.type_names, idx)
+    }
+
+    fn field_index(&mut self, idx: u32) -> Result<()> {
+        write!(&mut self.printer.result, "{idx}")?;
+        Ok(())
+    }
+
+    fn from_ref_type(&mut self, ref_ty: RefType) -> Result<()> {
+        self.printer.print_reftype(ref_ty)
+    }
+
+    fn to_ref_type(&mut self, ref_ty: RefType) -> Result<()> {
+        self.printer.print_reftype(ref_ty)
+    }
+
     fn data_index(&mut self, idx: u32) -> Result<()> {
         self.printer.print_idx(&self.state.core.data_names, idx)
     }
 
+    fn array_data_index(&mut self, idx: u32) -> Result<()> {
+        self.printer.print_idx(&self.state.core.data_names, idx)
+    }
+
     fn elem_index(&mut self, idx: u32) -> Result<()> {
+        self.printer.print_idx(&self.state.core.element_names, idx)
+    }
+
+    fn array_elem_index(&mut self, idx: u32) -> Result<()> {
         self.printer.print_idx(&self.state.core.element_names, idx)
     }
 
@@ -166,8 +300,51 @@ impl<'a, 'b> PrintOperator<'a, 'b> {
         }
         Ok(())
     }
+
+    fn try_table(&mut self, table: TryTable) -> Result<()> {
+        let has_name = self.blockty_without_label_comment(table.ty)?;
+
+        // Nesting has already been incremented but labels for catch start above
+        // this `try_table` not at the `try_table`. Temporarily decrement this
+        // nesting count and increase it below after printing catch clauses.
+        self.printer.nesting -= 1;
+
+        for catch in table.catches {
+            self.result().push(' ');
+            match catch {
+                Catch::One { tag, label } => {
+                    self.printer.start_group("catch ");
+                    self.tag_index(tag)?;
+                    self.result().push(' ');
+                    self.relative_depth(label)?;
+                    self.printer.end_group();
+                }
+                Catch::OneRef { tag, label } => {
+                    self.printer.start_group("catch_ref ");
+                    self.tag_index(tag)?;
+                    self.result().push(' ');
+                    self.relative_depth(label)?;
+                    self.printer.end_group();
+                }
+                Catch::All { label } => {
+                    self.printer.start_group("catch_all ");
+                    self.relative_depth(label)?;
+                    self.printer.end_group();
+                }
+                Catch::AllRef { label } => {
+                    self.printer.start_group("catch_all_ref ");
+                    self.relative_depth(label)?;
+                    self.printer.end_group();
+                }
+            }
+        }
+        self.printer.nesting += 1;
+        self.maybe_blockty_label_comment(has_name)?;
+        Ok(())
+    }
 }
 
+#[derive(PartialEq, Copy, Clone)]
 pub enum OpKind {
     BlockStart,
     BlockMid,
@@ -188,7 +365,11 @@ macro_rules! define_visit {
             $(
                 define_visit!(payload self $op $($arg)*);
             )?
-            Ok(define_visit!(kind $op))
+            let kind = define_visit!(kind $op);
+            if kind != OpKind::Normal {
+                self.update_label_stack(kind);
+            }
+            Ok(kind)
         }
     )*);
 
@@ -199,11 +380,12 @@ macro_rules! define_visit {
     (kind Loop) => (OpKind::BlockStart);
     (kind If) => (OpKind::BlockStart);
     (kind Try) => (OpKind::BlockStart);
-    (kind Else) => (OpKind::BlockMid);
+    (kind TryTable) => (OpKind::BlockStart);
     (kind Catch) => (OpKind::BlockMid);
     (kind CatchAll) => (OpKind::BlockMid);
-    (kind End) => (OpKind::End);
     (kind Delegate) => (OpKind::Delegate);
+    (kind Else) => (OpKind::BlockMid);
+    (kind End) => (OpKind::End);
     (kind $other:tt) => (OpKind::Normal);
 
     // How to print the payload of an instruction. There are a number of
@@ -316,6 +498,30 @@ macro_rules! define_visit {
             )?;
         }
     );
+    (payload $self:ident RefTestNonNull $hty:ident) => (
+        $self.push_str(" ");
+        let rty = RefType::new(false, $hty)
+            .ok_or_else(|| anyhow!("implementation limit: type index too large"))?;
+        $self.printer.print_reftype(rty)?;
+    );
+    (payload $self:ident RefTestNullable $hty:ident) => (
+        $self.push_str(" ");
+        let rty = RefType::new(true, $hty)
+            .ok_or_else(|| anyhow!("implementation limit: type index too large"))?;
+        $self.printer.print_reftype(rty)?;
+    );
+    (payload $self:ident RefCastNonNull $hty:ident) => (
+        $self.push_str(" ");
+        let rty = RefType::new(false, $hty)
+            .ok_or_else(|| anyhow!("implementation limit: type index too large"))?;
+        $self.printer.print_reftype(rty)?;
+    );
+    (payload $self:ident RefCastNullable $hty:ident) => (
+        $self.push_str(" ");
+        let rty = RefType::new(true, $hty)
+            .ok_or_else(|| anyhow!("implementation limit: type index too large"))?;
+        $self.printer.print_reftype(rty)?;
+    );
     (payload $self:ident $op:ident $($arg:ident)*) => (
         $(
             $self.push_str(" ");
@@ -390,6 +596,7 @@ macro_rules! define_visit {
     (name TableGrow) => ("table.grow");
     (name RefAsNonNull) => ("ref.as_non_null");
     (name RefNull) => ("ref.null");
+    (name RefEq) => ("ref.eq");
     (name RefIsNull) => ("ref.is_null");
     (name RefFunc) => ("ref.func");
     (name I32Const) => ("i32.const");
@@ -835,12 +1042,6 @@ macro_rules! define_visit {
     (name F64x2ConvertLowI32x4U) => ("f64x2.convert_low_i32x4_u");
     (name F32x4DemoteF64x2Zero) => ("f32x4.demote_f64x2_zero");
     (name F64x2PromoteLowF32x4) => ("f64x2.promote_low_f32x4");
-    (name Try) => ("try");
-    (name Catch) => ("catch");
-    (name Throw) => ("throw");
-    (name Rethrow) => ("rethrow");
-    (name Delegate) => ("delegate");
-    (name CatchAll) => ("catch_all");
     (name I8x16RelaxedSwizzle) => ("i8x16.relaxed_swizzle");
     (name I32x4RelaxedTruncF32x4S) => ("i32x4.relaxed_trunc_f32x4_s");
     (name I32x4RelaxedTruncF32x4U) => ("i32x4.relaxed_trunc_f32x4_u");
@@ -861,9 +1062,45 @@ macro_rules! define_visit {
     (name I16x8RelaxedQ15mulrS) => ("i16x8.relaxed_q15mulr_s");
     (name I16x8RelaxedDotI8x16I7x16S) => ("i16x8.relaxed_dot_i8x16_i7x16_s");
     (name I32x4RelaxedDotI8x16I7x16AddS) => ("i32x4.relaxed_dot_i8x16_i7x16_add_s");
+    (name StructNew) => ("struct.new");
+    (name StructNewDefault) => ("struct.new_default");
+    (name StructGet) => ("struct.get");
+    (name StructGetS) => ("struct.get_s");
+    (name StructGetU) => ("struct.get_u");
+    (name StructSet) => ("struct.set");
+    (name ArrayNew) => ("array.new");
+    (name ArrayNewDefault) => ("array.new_default");
+    (name ArrayNewFixed) => ("array.new_fixed");
+    (name ArrayNewData) => ("array.new_data");
+    (name ArrayNewElem) => ("array.new_elem");
+    (name ArrayGet) => ("array.get");
+    (name ArrayGetS) => ("array.get_s");
+    (name ArrayGetU) => ("array.get_u");
+    (name ArraySet) => ("array.set");
+    (name ArrayLen) => ("array.len");
+    (name ArrayFill) => ("array.fill");
+    (name ArrayCopy) => ("array.copy");
+    (name ArrayInitData) => ("array.init_data");
+    (name ArrayInitElem) => ("array.init_elem");
+    (name AnyConvertExtern) => ("any.convert_extern");
+    (name ExternConvertAny) => ("extern.convert_any");
+    (name RefTestNonNull) => ("ref.test");
+    (name RefTestNullable) => ("ref.test");
+    (name RefCastNonNull) => ("ref.cast");
+    (name RefCastNullable) => ("ref.cast");
+    (name BrOnCast) => ("br_on_cast");
+    (name BrOnCastFail) => ("br_on_cast_fail");
     (name RefI31) => ("ref.i31");
     (name I31GetS) => ("i31.get_s");
     (name I31GetU) => ("i31.get_u");
+    (name TryTable) => ("try_table");
+    (name Throw) => ("throw");
+    (name ThrowRef) => ("throw_ref");
+    (name Rethrow) => ("rethrow");
+    (name Try) => ("try");
+    (name Catch) => ("catch");
+    (name CatchAll) => ("catch_all");
+    (name Delegate) => ("delegate");
 }
 
 impl<'a> VisitOperator<'a> for PrintOperator<'_, '_> {

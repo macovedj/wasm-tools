@@ -306,13 +306,13 @@ pub struct RecGroup {
 
 #[derive(Debug, Clone)]
 enum RecGroupInner {
-    Implicit(SubType),
-    Explicit(Vec<SubType>),
+    Implicit((usize, SubType)),
+    Explicit(Vec<(usize, SubType)>),
 }
 
 impl RecGroup {
     /// Create an explicit `RecGroup` for the given types.
-    pub(crate) fn explicit(types: Vec<SubType>) -> Self {
+    pub(crate) fn explicit(types: Vec<(usize, SubType)>) -> Self {
         RecGroup {
             inner: RecGroupInner::Explicit(types),
         }
@@ -320,51 +320,59 @@ impl RecGroup {
 
     /// Create an implicit `RecGroup` for a type that was not contained
     /// in a `(rec ...)`.
-    pub(crate) fn implicit(ty: SubType) -> Self {
+    pub(crate) fn implicit(offset: usize, ty: SubType) -> Self {
         RecGroup {
-            inner: RecGroupInner::Implicit(ty),
+            inner: RecGroupInner::Implicit((offset, ty)),
         }
     }
 
     /// Is this an explicit recursion group?
     pub fn is_explicit_rec_group(&self) -> bool {
-        matches!(self.inner, RecGroupInner::Explicit(_))
+        matches!(self.inner, RecGroupInner::Explicit(..))
     }
 
     /// Returns the list of subtypes in the recursive type group.
-    pub fn types(&self) -> &[SubType] {
-        match &self.inner {
+    pub fn types(&self) -> impl ExactSizeIterator<Item = &SubType> + '_ {
+        let types = match &self.inner {
             RecGroupInner::Implicit(ty) => std::slice::from_ref(ty),
             RecGroupInner::Explicit(types) => types,
-        }
+        };
+        types.iter().map(|(_, ty)| ty)
     }
 
     /// Return a mutable borrow of the list of subtypes in this
     /// recursive type group.
-    pub(crate) fn types_mut(&mut self) -> &mut [SubType] {
-        match &mut self.inner {
+    pub(crate) fn types_mut(&mut self) -> impl ExactSizeIterator<Item = &mut SubType> + '_ {
+        let types = match &mut self.inner {
             RecGroupInner::Implicit(ty) => std::slice::from_mut(ty),
             RecGroupInner::Explicit(types) => types,
-        }
+        };
+        types.iter_mut().map(|(_, ty)| ty)
     }
 
     /// Returns an owning iterator of all subtypes in this recursion
     /// group.
     pub fn into_types(self) -> impl ExactSizeIterator<Item = SubType> {
+        self.into_types_and_offsets().map(|(_, ty)| ty)
+    }
+
+    /// Returns an owning iterator of all subtypes in this recursion
+    /// group, along with their offset.
+    pub fn into_types_and_offsets(self) -> impl ExactSizeIterator<Item = (usize, SubType)> {
         return match self.inner {
-            RecGroupInner::Implicit(ty) => Iter::Implicit(Some(ty)),
+            RecGroupInner::Implicit(tup) => Iter::Implicit(Some(tup)),
             RecGroupInner::Explicit(types) => Iter::Explicit(types.into_iter()),
         };
 
         enum Iter {
-            Implicit(Option<SubType>),
-            Explicit(std::vec::IntoIter<SubType>),
+            Implicit(Option<(usize, SubType)>),
+            Explicit(std::vec::IntoIter<(usize, SubType)>),
         }
 
         impl Iterator for Iter {
-            type Item = SubType;
+            type Item = (usize, SubType);
 
-            fn next(&mut self) -> Option<SubType> {
+            fn next(&mut self) -> Option<(usize, SubType)> {
                 match self {
                     Self::Implicit(ty) => ty.take(),
                     Self::Explicit(types) => types.next(),
@@ -386,13 +394,19 @@ impl RecGroup {
 
 impl Hash for RecGroup {
     fn hash<H: Hasher>(&self, hasher: &mut H) {
-        self.types().hash(hasher)
+        let types = self.types();
+        types.len().hash(hasher);
+        for ty in types {
+            ty.hash(hasher);
+        }
     }
 }
 
 impl PartialEq for RecGroup {
     fn eq(&self, other: &RecGroup) -> bool {
-        self.types() == other.types()
+        let self_tys = self.types();
+        let other_tys = other.types();
+        self_tys.len() == other_tys.len() && self_tys.zip(other_tys).all(|(a, b)| a == b)
     }
 }
 
@@ -407,6 +421,24 @@ pub struct SubType {
     pub supertype_idx: Option<PackedIndex>,
     /// The composite type of the subtype.
     pub composite_type: CompositeType,
+}
+
+impl std::fmt::Display for SubType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.is_final && self.supertype_idx.is_none() {
+            std::fmt::Display::fmt(&self.composite_type, f)
+        } else {
+            write!(f, "(sub ")?;
+            if self.is_final {
+                write!(f, "final ")?;
+            }
+            if let Some(idx) = self.supertype_idx {
+                write!(f, "{idx} ")?;
+            }
+            std::fmt::Display::fmt(&self.composite_type, f)?;
+            write!(f, ")")
+        }
+    }
 }
 
 impl SubType {
@@ -470,6 +502,16 @@ pub enum CompositeType {
     Array(ArrayType),
     /// The type is for a struct.
     Struct(StructType),
+}
+
+impl std::fmt::Display for CompositeType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Array(_) => write!(f, "(array ...)"),
+            Self::Func(_) => write!(f, "(func ...)"),
+            Self::Struct(_) => write!(f, "(struct ...)"),
+        }
+    }
 }
 
 impl CompositeType {
@@ -629,6 +671,36 @@ pub enum StorageType {
     Val(ValType),
 }
 
+impl std::fmt::Display for StorageType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::I8 => write!(f, "i8"),
+            Self::I16 => write!(f, "i16"),
+            Self::Val(v) => std::fmt::Display::fmt(v, f),
+        }
+    }
+}
+
+impl StorageType {
+    /// Is this a packed storage type, i.e. one that must be sign- or
+    /// zero-extended when converted to a `ValType`?
+    pub fn is_packed(&self) -> bool {
+        match self {
+            Self::I8 | Self::I16 => true,
+            Self::Val(_) => false,
+        }
+    }
+
+    /// Unpack this storage type into the valtype that it is represented as on
+    /// the operand stack.
+    pub fn unpack(&self) -> ValType {
+        match *self {
+            Self::Val(ty) => ty,
+            Self::I8 | Self::I16 => ValType::I32,
+        }
+    }
+}
+
 /// Represents a type of a struct in a WebAssembly module.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct StructType {
@@ -680,12 +752,23 @@ impl ValType {
     /// Alias for the wasm `externref` type.
     pub const EXTERNREF: ValType = ValType::Ref(RefType::EXTERNREF);
 
+    /// Alias for the wasm `exnref` type.
+    pub const EXNREF: ValType = ValType::Ref(RefType::EXNREF);
+
     /// Returns whether this value type is a "reference type".
     ///
     /// Only reference types are allowed in tables, for example, and with some
     /// instructions. Current reference types include `funcref` and `externref`.
     pub fn is_reference_type(&self) -> bool {
         matches!(self, ValType::Ref(_))
+    }
+
+    /// Get the underlying reference type, if any.
+    pub fn as_reference_type(&self) -> Option<RefType> {
+        match *self {
+            ValType::Ref(r) => Some(r),
+            ValType::I32 | ValType::I64 | ValType::F32 | ValType::F64 | ValType::V128 => None,
+        }
     }
 
     /// Whether the type is defaultable, i.e. it is not a non-nullable reference
@@ -763,6 +846,8 @@ impl ValType {
 //   0011 = extern
 //   0010 = noextern
 //
+//   0001 = exn
+//
 //   0000 = none
 //   ```
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -791,6 +876,8 @@ impl std::fmt::Debug for RefType {
             (false, HeapType::Extern) => write!(f, "(ref extern)"),
             (true, HeapType::Func) => write!(f, "funcref"),
             (false, HeapType::Func) => write!(f, "(ref func)"),
+            (true, HeapType::Exn) => write!(f, "exnref"),
+            (false, HeapType::Exn) => write!(f, "(ref exn)"),
             (true, HeapType::Concrete(idx)) => write!(f, "(ref null {idx})"),
             (false, HeapType::Concrete(idx)) => write!(f, "(ref {idx})"),
         }
@@ -840,6 +927,7 @@ impl RefType {
     const NOFUNC_ABSTYPE: u32 = 0b0100 << 18;
     const EXTERN_ABSTYPE: u32 = 0b0011 << 18;
     const NOEXTERN_ABSTYPE: u32 = 0b0010 << 18;
+    const EXN_ABSTYPE: u32 = 0b0001 << 18;
     const NONE_ABSTYPE: u32 = 0b0000 << 18;
 
     // The `index` is valid only when `concrete == 1`.
@@ -852,6 +940,37 @@ impl RefType {
     /// A nullable reference to an extern object aka `(ref null extern)` aka
     /// `externref`.
     pub const EXTERNREF: Self = RefType::EXTERN.nullable();
+
+    /// A nullable reference to any object aka `(ref null any)` aka `anyref`.
+    pub const ANYREF: Self = RefType::ANY.nullable();
+
+    /// A nullable reference to no object aka `(ref null none)` aka `nullref`.
+    pub const NULLREF: Self = RefType::NONE.nullable();
+
+    /// A nullable reference to a noextern object aka `(ref null noextern)` aka
+    /// `nullexternref`.
+    pub const NULLEXTERNREF: Self = RefType::NOEXTERN.nullable();
+
+    /// A nullable reference to a nofunc object aka `(ref null nofunc)` aka
+    /// `nullfuncref`.
+    pub const NULLFUNCREF: Self = RefType::NOFUNC.nullable();
+
+    /// A nullable reference to an eq object aka `(ref null eq)` aka `eqref`.
+    pub const EQREF: Self = RefType::EQ.nullable();
+
+    /// A nullable reference to a struct aka `(ref null struct)` aka
+    /// `structref`.
+    pub const STRUCTREF: Self = RefType::STRUCT.nullable();
+
+    /// A nullable reference to an array aka `(ref null array)` aka `arrayref`.
+    pub const ARRAYREF: Self = RefType::ARRAY.nullable();
+
+    /// A nullable reference to an i31 object aka `(ref null i31)` aka `i31ref`.
+    pub const I31REF: Self = RefType::I31.nullable();
+
+    /// A nullable reference to an exception object aka `(ref null exn)` aka
+    /// `exnref`.
+    pub const EXNREF: Self = RefType::EXN.nullable();
 
     /// A non-nullable untyped function reference aka `(ref func)`.
     pub const FUNC: Self = RefType::from_u32(Self::FUNC_ABSTYPE);
@@ -882,6 +1001,9 @@ impl RefType {
 
     /// A non-nullable reference to an i31 object aka `(ref i31)`.
     pub const I31: Self = RefType::from_u32(Self::I31_ABSTYPE);
+
+    /// A non-nullable reference to an exn object aka `(ref exn)`.
+    pub const EXN: Self = RefType::from_u32(Self::EXN_ABSTYPE);
 
     const fn can_represent_type_index(index: u32) -> bool {
         index & Self::INDEX_MASK == index
@@ -922,6 +1044,7 @@ impl RefType {
                         | Self::EXTERN_ABSTYPE
                         | Self::NOEXTERN_ABSTYPE
                         | Self::NONE_ABSTYPE
+                        | Self::EXN_ABSTYPE
                 )
         );
 
@@ -959,7 +1082,23 @@ impl RefType {
             HeapType::Struct => Some(Self::from_u32(nullable32 | Self::STRUCT_ABSTYPE)),
             HeapType::Array => Some(Self::from_u32(nullable32 | Self::ARRAY_ABSTYPE)),
             HeapType::I31 => Some(Self::from_u32(nullable32 | Self::I31_ABSTYPE)),
+            HeapType::Exn => Some(Self::from_u32(nullable32 | Self::EXN_ABSTYPE)),
         }
+    }
+
+    /// Compute the [type difference] between the two given ref types.
+    ///
+    /// [type difference]: https://webassembly.github.io/gc/core/valid/conventions.html#aux-reftypediff
+    pub fn difference(a: RefType, b: RefType) -> RefType {
+        RefType::new(
+            if b.is_nullable() {
+                false
+            } else {
+                a.is_nullable()
+            },
+            a.heap_type(),
+        )
+        .unwrap()
     }
 
     /// Is this a reference to an concrete type?
@@ -1017,7 +1156,7 @@ impl RefType {
         Self::from_u32(self.as_u32() & !Self::NULLABLE_BIT)
     }
 
-    /// Get the non-nullable version of this ref type.
+    /// Get the nullable version of this ref type.
     pub const fn nullable(&self) -> Self {
         Self::from_u32(self.as_u32() | Self::NULLABLE_BIT)
     }
@@ -1039,6 +1178,7 @@ impl RefType {
                 Self::STRUCT_ABSTYPE => HeapType::Struct,
                 Self::ARRAY_ABSTYPE => HeapType::Array,
                 Self::I31_ABSTYPE => HeapType::I31,
+                Self::EXN_ABSTYPE => HeapType::Exn,
                 _ => unreachable!(),
             }
         }
@@ -1059,6 +1199,7 @@ impl RefType {
             (true, HeapType::Struct) => "structref",
             (true, HeapType::Array) => "arrayref",
             (true, HeapType::I31) => "i31ref",
+            (true, HeapType::Exn) => "exnref",
             (false, HeapType::Func) => "(ref func)",
             (false, HeapType::Extern) => "(ref extern)",
             (false, HeapType::Concrete(_)) => "(ref $type)",
@@ -1070,6 +1211,7 @@ impl RefType {
             (false, HeapType::Struct) => "(ref struct)",
             (false, HeapType::Array) => "(ref array)",
             (false, HeapType::I31) => "(ref i31)",
+            (false, HeapType::Exn) => "(ref exn)",
         }
     }
 }
@@ -1150,13 +1292,18 @@ pub enum HeapType {
     ///
     /// Introduced in the GC proposal.
     I31,
+
+    /// The abstraction `exception` heap type.
+    ///
+    /// Introduced in the exception-handling proposal.
+    Exn,
 }
 
 impl ValType {
     pub(crate) fn is_valtype_byte(byte: u8) -> bool {
         match byte {
             0x7F | 0x7E | 0x7D | 0x7C | 0x7B | 0x70 | 0x6F | 0x64 | 0x63 | 0x6E | 0x71 | 0x72
-            | 0x73 | 0x6D | 0x6B | 0x6A | 0x6C => true,
+            | 0x73 | 0x6D | 0x6B | 0x6A | 0x6C | 0x69 => true,
             _ => false,
         }
     }
@@ -1201,9 +1348,8 @@ impl<'a> FromReader<'a> for ValType {
                 reader.position += 1;
                 Ok(ValType::V128)
             }
-            0x70 | 0x6F | 0x64 | 0x63 | 0x6E | 0x71 | 0x72 | 0x73 | 0x6D | 0x6B | 0x6A | 0x6C => {
-                Ok(ValType::Ref(reader.read()?))
-            }
+            0x70 | 0x6F | 0x64 | 0x63 | 0x6E | 0x71 | 0x72 | 0x73 | 0x6D | 0x6B | 0x6A | 0x6C
+            | 0x69 => Ok(ValType::Ref(reader.read()?)),
             _ => bail!(reader.original_position(), "invalid value type"),
         }
     }
@@ -1222,6 +1368,7 @@ impl<'a> FromReader<'a> for RefType {
             0x6B => Ok(RefType::STRUCT.nullable()),
             0x6A => Ok(RefType::ARRAY.nullable()),
             0x6C => Ok(RefType::I31.nullable()),
+            0x69 => Ok(RefType::EXN.nullable()),
             byte @ (0x63 | 0x64) => {
                 let nullable = byte == 0x63;
                 let pos = reader.original_position();
@@ -1275,6 +1422,10 @@ impl<'a> FromReader<'a> for HeapType {
             0x6C => {
                 reader.position += 1;
                 Ok(HeapType::I31)
+            }
+            0x69 => {
+                reader.position += 1;
+                Ok(HeapType::Exn)
             }
             _ => {
                 let idx = match u32::try_from(reader.read_var_s33()?) {
@@ -1423,10 +1574,19 @@ impl<'a> FromReader<'a> for RecGroup {
         match reader.peek()? {
             0x4e => {
                 reader.read_u8()?;
-                let types = reader.read_iter(MAX_WASM_TYPES, "rec group types")?;
-                Ok(RecGroup::explicit(types.collect::<Result<_>>()?))
+                let mut iter = reader.read_iter(MAX_WASM_TYPES, "rec group types")?;
+                let mut types = Vec::with_capacity(iter.size_hint().0);
+                let mut offset = iter.reader.original_position();
+                while let Some(ty) = iter.next() {
+                    types.push((offset, ty?));
+                    offset = iter.reader.original_position();
+                }
+                Ok(RecGroup::explicit(types))
             }
-            _ => Ok(RecGroup::implicit(reader.read()?)),
+            _ => Ok(RecGroup::implicit(
+                reader.original_position(),
+                reader.read()?,
+            )),
         }
     }
 }
@@ -1497,7 +1657,7 @@ impl<'a> FromReader<'a> for FieldType {
                 1 => true,
                 _ => bail!(
                     reader.original_position(),
-                    "invalid mutability byte for array type"
+                    "malformed mutability byte for field type"
                 ),
             },
         })

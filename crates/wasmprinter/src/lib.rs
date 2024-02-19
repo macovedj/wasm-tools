@@ -11,6 +11,7 @@
 use anyhow::{bail, Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Write};
+use std::marker;
 use std::mem;
 use std::path::Path;
 use wasmparser::*;
@@ -18,6 +19,7 @@ use wasmparser::*;
 const MAX_LOCALS: u32 = 50000;
 const MAX_NESTING_TO_PRINT: u32 = 50;
 const MAX_WASM_FUNCTIONS: u32 = 1_000_000;
+const MAX_WASM_FUNCTION_SIZE: u32 = 128 * 1024;
 
 mod operator;
 
@@ -52,6 +54,8 @@ pub struct Printer {
     nesting: u32,
     line: usize,
     group_lines: Vec<usize>,
+    code_section_hints: Vec<(u32, Vec<(usize, BranchHint)>)>,
+    name_unnamed: bool,
 }
 
 #[derive(Default)]
@@ -62,20 +66,43 @@ struct CoreState {
     tags: u32,
     globals: u32,
     tables: u32,
-    labels: u32,
     modules: u32,
     instances: u32,
-    func_names: HashMap<u32, Naming>,
-    local_names: HashMap<(u32, u32), Naming>,
-    label_names: HashMap<(u32, u32), Naming>,
-    type_names: HashMap<u32, Naming>,
-    table_names: HashMap<u32, Naming>,
-    memory_names: HashMap<u32, Naming>,
-    global_names: HashMap<u32, Naming>,
-    element_names: HashMap<u32, Naming>,
-    data_names: HashMap<u32, Naming>,
-    module_names: HashMap<u32, Naming>,
-    instance_names: HashMap<u32, Naming>,
+    func_names: NamingMap<u32, NameFunc>,
+    local_names: NamingMap<(u32, u32), NameLocal>,
+    label_names: NamingMap<(u32, u32), NameLabel>,
+    type_names: NamingMap<u32, NameType>,
+    tag_names: NamingMap<u32, NameTag>,
+    table_names: NamingMap<u32, NameTable>,
+    memory_names: NamingMap<u32, NameMemory>,
+    global_names: NamingMap<u32, NameGlobal>,
+    element_names: NamingMap<u32, NameElem>,
+    data_names: NamingMap<u32, NameData>,
+    module_names: NamingMap<u32, NameModule>,
+    instance_names: NamingMap<u32, NameInstance>,
+}
+
+/// A map of index-to-name for tracking what are the contents of the name
+/// section.
+///
+/// The type parameter `T` is either `u32` for most index-based maps or a `(u32,
+/// u32)` for label/local maps where there are two levels of indices.
+///
+/// The type parameter `K` is a static description/namespace for what kind of
+/// item is contained within this map. That's used by some helper methods to
+/// synthesize reasonable names automatically.
+struct NamingMap<T, K> {
+    index_to_name: HashMap<T, Naming>,
+    _marker: marker::PhantomData<K>,
+}
+
+impl<T, K> Default for NamingMap<T, K> {
+    fn default() -> NamingMap<T, K> {
+        NamingMap {
+            index_to_name: HashMap::new(),
+            _marker: marker::PhantomData,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -85,11 +112,11 @@ struct ComponentState {
     instances: u32,
     components: u32,
     values: u32,
-    type_names: HashMap<u32, Naming>,
-    func_names: HashMap<u32, Naming>,
-    component_names: HashMap<u32, Naming>,
-    instance_names: HashMap<u32, Naming>,
-    value_names: HashMap<u32, Naming>,
+    type_names: NamingMap<u32, NameType>,
+    func_names: NamingMap<u32, NameFunc>,
+    component_names: NamingMap<u32, NameComponent>,
+    instance_names: NamingMap<u32, NameInstance>,
+    value_names: NamingMap<u32, NameValue>,
 }
 
 struct State {
@@ -132,6 +159,20 @@ impl Printer {
     /// data segment contents, element segment contents, etc.
     pub fn print_skeleton(&mut self, print: bool) {
         self.print_skeleton = print;
+    }
+
+    /// Assign names to all unnamed items.
+    ///
+    /// If enabled then any previously unnamed item will have a name synthesized
+    /// that looks like `$#func10` for example. The leading `#` indicates that
+    /// it's `wasmprinter`-generated. The `func` is the namespace of the name
+    /// and provides extra context about the item when referenced. The 10 is the
+    /// local index of the item.
+    ///
+    /// Note that if the resulting text output is converted back to binary the
+    /// resulting `name` custom section will not be the same as before.
+    pub fn name_unnamed(&mut self, enable: bool) {
+        self.name_unnamed = enable;
     }
 
     /// Registers a custom `printer` function to get invoked whenever a custom
@@ -240,6 +281,15 @@ impl Printer {
                 Payload::CustomSection(c) if c.name() == "component-name" => {
                     let reader = ComponentNameSectionReader::new(c.data(), c.data_offset());
                     drop(self.register_component_names(state, reader));
+                }
+
+                Payload::CustomSection(c) if c.name() == "metadata.code.branch_hint" => {
+                    drop(
+                        self.register_branch_hint_section(BranchHintSectionReader::new(
+                            c.data(),
+                            c.data_offset(),
+                        )?),
+                    );
                 }
 
                 Payload::End(_) => break,
@@ -541,8 +591,8 @@ impl Printer {
     }
 
     fn register_names(&mut self, state: &mut State, names: NameSectionReader<'_>) -> Result<()> {
-        fn indirect_name_map(
-            into: &mut HashMap<(u32, u32), Naming>,
+        fn indirect_name_map<K>(
+            into: &mut NamingMap<(u32, u32), K>,
             names: IndirectNameMap<'_>,
             name: &str,
         ) -> Result<()> {
@@ -556,7 +606,7 @@ impl Printer {
                 };
                 for naming in indirect.names {
                     let naming = naming?;
-                    into.insert(
+                    into.index_to_name.insert(
                         (indirect.index, naming.index),
                         Naming::new(naming.name, naming.index, name, used.as_mut()),
                     );
@@ -580,6 +630,7 @@ impl Printer {
                 Name::Global(n) => name_map(&mut state.core.global_names, n, "global")?,
                 Name::Element(n) => name_map(&mut state.core.element_names, n, "elem")?,
                 Name::Data(n) => name_map(&mut state.core.data_names, n, "data")?,
+                Name::Tag(n) => name_map(&mut state.core.tag_names, n, "tag")?,
                 Name::Unknown { .. } => (),
             }
         }
@@ -799,8 +850,7 @@ impl Printer {
         // we need to be careful to terminate previous param blocks and open
         // a new one if that's the case with a named parameter.
         for (i, param) in ty.params().iter().enumerate() {
-            let name = names_for.and_then(|n| state.core.local_names.get(&(n, i as u32)));
-            params.start_local(name, &mut self.result);
+            params.start_local(names_for.unwrap_or(u32::MAX), i as u32, self, state);
             self.print_valtype(*param)?;
             params.end_local(&mut self.result);
         }
@@ -847,7 +897,7 @@ impl Printer {
             self.result.push_str("final ");
         }
         for idx in &ty.supertype_idx {
-            self.print_name(&state.core.type_names, idx.as_module_index().unwrap())?;
+            self.print_idx(&state.core.type_names, idx.as_module_index().unwrap())?;
             self.result.push(' ');
         }
         Ok(0)
@@ -887,6 +937,7 @@ impl Printer {
                 RefType::EQ => self.result.push_str("eqref"),
                 RefType::STRUCT => self.result.push_str("structref"),
                 RefType::ARRAY => self.result.push_str("arrayref"),
+                RefType::EXN => self.result.push_str("exnref"),
                 _ => {
                     self.result.push_str("(ref null ");
                     self.print_heaptype(ty.heap_type())?;
@@ -913,6 +964,7 @@ impl Printer {
             HeapType::Struct => self.result.push_str("struct"),
             HeapType::Array => self.result.push_str("array"),
             HeapType::I31 => self.result.push_str("i31"),
+            HeapType::Exn => self.result.push_str("exn"),
             HeapType::Concrete(i) => self
                 .result
                 .push_str(&format!("{}", i.as_module_index().unwrap())),
@@ -997,7 +1049,8 @@ impl Printer {
     fn print_tag_type(&mut self, state: &State, ty: &TagType, index: bool) -> Result<()> {
         self.start_group("tag ");
         if index {
-            write!(self.result, "(;{};) ", state.core.tags)?;
+            self.print_name(&state.core.tag_names, state.core.tags)?;
+            self.result.push(' ');
         }
         self.print_core_functype_idx(state, ty.func_type_idx, None)?;
         Ok(())
@@ -1105,10 +1158,20 @@ impl Printer {
                 .print_core_functype_idx(state, ty, Some(func_idx))?
                 .unwrap_or(0);
 
+            // Hints are stored on `self` in reverse order of function index so
+            // check the last one and see if it matches this function.
+            let hints = match self.code_section_hints.last() {
+                Some((f, _)) if *f == func_idx => {
+                    let (_, hints) = self.code_section_hints.pop().unwrap();
+                    hints
+                }
+                _ => Vec::new(),
+            };
+
             if self.print_skeleton {
                 self.result.push_str(" ...");
             } else {
-                self.print_func_body(state, func_idx, params, &mut body)?;
+                self.print_func_body(state, func_idx, params, &mut body, &hints)?;
             }
 
             self.end_group();
@@ -1124,10 +1187,12 @@ impl Printer {
         func_idx: u32,
         params: u32,
         body: &mut BinaryReader<'_>,
+        mut branch_hints: &[(usize, BranchHint)],
     ) -> Result<()> {
         let mut first = true;
         let mut local_idx = 0;
         let mut locals = NamedLocalPrinter::new("local");
+        let func_start = body.original_position();
         for _ in 0..body.read_var_u32()? {
             let offset = body.original_position();
             let cnt = body.read_var_u32()?;
@@ -1144,8 +1209,7 @@ impl Printer {
                     self.newline(offset);
                     first = false;
                 }
-                let name = state.core.local_names.get(&(func_idx, params + local_idx));
-                locals.start_local(name, &mut self.result);
+                locals.start_local(func_idx, params + local_idx, self, state);
                 self.print_valtype(ty)?;
                 locals.end_local(&mut self.result);
                 local_idx += 1;
@@ -1153,14 +1217,27 @@ impl Printer {
         }
         locals.finish(&mut self.result);
 
-        state.core.labels = 0;
         let nesting_start = self.nesting;
         body.allow_memarg64(true);
 
         let mut buf = String::new();
         let mut op_printer = operator::PrintOperator::new(self, state);
         while !body.eof() {
-            // TODO
+            // Branch hints are stored in increasing order of their body offset
+            // so print them whenever their instruction comes up.
+            if let Some(((hint_offset, hint), rest)) = branch_hints.split_first() {
+                if hint.func_offset == (body.original_position() - func_start) as u32 {
+                    branch_hints = rest;
+                    op_printer.printer.newline(*hint_offset);
+                    let desc = if hint.taken { "\"\\01\"" } else { "\"\\00\"" };
+                    write!(
+                        op_printer.printer.result,
+                        "(@metadata.code.branch_hint {})",
+                        desc
+                    )?;
+                }
+            }
+
             let offset = body.original_position();
             mem::swap(&mut buf, &mut op_printer.printer.result);
             let op_kind = body.visit_operator(&mut op_printer)??;
@@ -1189,7 +1266,7 @@ impl Printer {
                 }
 
                 // Exiting a block prints `end` at the previous indentation
-                // level. `delegate` also ends a block like `end` for `try`.
+                // level.
                 operator::OpKind::End | operator::OpKind::Delegate
                     if op_printer.printer.nesting > nesting_start =>
                 {
@@ -1305,28 +1382,55 @@ impl Printer {
         Ok(())
     }
 
-    fn print_idx(&mut self, names: &HashMap<u32, Naming>, idx: u32) -> Result<()> {
+    fn print_idx<K>(&mut self, names: &NamingMap<u32, K>, idx: u32) -> Result<()>
+    where
+        K: NamingNamespace,
+    {
+        self._print_idx(&names.index_to_name, idx, K::desc())
+    }
+
+    fn _print_idx(&mut self, names: &HashMap<u32, Naming>, idx: u32, desc: &str) -> Result<()> {
         match names.get(&idx) {
             Some(name) => write!(self.result, "${}", name.identifier())?,
-            None => write!(self.result, "{}", idx)?,
+            None if self.name_unnamed => write!(self.result, "$#{desc}{idx}")?,
+            None => write!(self.result, "{idx}")?,
         }
         Ok(())
     }
 
     fn print_local_idx(&mut self, state: &State, func: u32, idx: u32) -> Result<()> {
-        match state.core.local_names.get(&(func, idx)) {
+        match state.core.local_names.index_to_name.get(&(func, idx)) {
             Some(name) => write!(self.result, "${}", name.identifier())?,
+            None if self.name_unnamed => write!(self.result, "$#local{idx}")?,
             None => write!(self.result, "{}", idx)?,
         }
         Ok(())
     }
 
-    fn print_name(&mut self, names: &HashMap<u32, Naming>, cur_idx: u32) -> Result<()> {
-        if let Some(name) = names.get(&cur_idx) {
-            name.write(&mut self.result);
-            self.result.push(' ');
+    fn print_name<K>(&mut self, names: &NamingMap<u32, K>, cur_idx: u32) -> Result<()>
+    where
+        K: NamingNamespace,
+    {
+        self._print_name(&names.index_to_name, cur_idx, K::desc())
+    }
+
+    fn _print_name(
+        &mut self,
+        names: &HashMap<u32, Naming>,
+        cur_idx: u32,
+        desc: &str,
+    ) -> Result<()> {
+        match names.get(&cur_idx) {
+            Some(name) => {
+                name.write(&mut self.result);
+                self.result.push(' ');
+            }
+            None if self.name_unnamed => {
+                write!(self.result, "$#{desc}{cur_idx} ")?;
+            }
+            None => {}
         }
-        write!(self.result, "(;{};)", cur_idx)?;
+        write!(self.result, "(;{cur_idx};)")?;
         Ok(())
     }
 
@@ -2448,7 +2552,7 @@ impl Printer {
                     }
                     ExternalKind::Tag => {
                         self.start_group("core tag ");
-                        write!(self.result, "(;{};)", state.core.tags)?;
+                        self.print_name(&state.core.tag_names, state.core.tags)?;
                         self.end_group();
                         state.core.tags += 1;
                     }
@@ -2659,27 +2763,50 @@ impl Printer {
         Ok(())
     }
 
-    fn print_dylink0_flags(&mut self, mut flags: u32) -> Result<()> {
+    fn print_dylink0_flags(&mut self, mut flags: SymbolFlags) -> Result<()> {
         macro_rules! print_flag {
             ($($name:ident = $text:tt)*) => ({$(
-                if flags & wasmparser::$name != 0 {
-                    flags &= !wasmparser::$name;
+                if flags.contains(SymbolFlags::$name) {
+                    flags.remove(SymbolFlags::$name);
                     self.result.push_str(concat!(" ", $text));
                 }
             )*})
         }
+        // N.B.: Keep in sync with `parse_sym_flags` in `crates/wast/src/core/custom.rs`.
         print_flag! {
-            WASM_SYM_BINDING_WEAK = "binding-weak"
-            WASM_SYM_BINDING_LOCAL = "binding-local"
-            WASM_SYM_VISIBILITY_HIDDEN = "visibility-hidden"
-            WASM_SYM_UNDEFINED = "undefined"
-            WASM_SYM_EXPORTED = "exported"
-            WASM_SYM_EXPLICIT_NAME = "explicit-name"
-            WASM_SYM_NO_STRIP = "no-strip"
+            BINDING_WEAK = "binding-weak"
+            BINDING_LOCAL = "binding-local"
+            VISIBILITY_HIDDEN = "visibility-hidden"
+            UNDEFINED = "undefined"
+            EXPORTED = "exported"
+            EXPLICIT_NAME = "explicit-name"
+            NO_STRIP = "no-strip"
+            TLS = "tls"
+            ABSOLUTE = "absolute"
         }
-        if flags != 0 {
+        if !flags.is_empty() {
             write!(self.result, " {:#x}", flags)?;
         }
+        Ok(())
+    }
+
+    fn register_branch_hint_section(&mut self, section: BranchHintSectionReader<'_>) -> Result<()> {
+        self.code_section_hints.clear();
+        for func in section {
+            let func = func?;
+            if self.code_section_hints.len() >= MAX_WASM_FUNCTIONS as usize {
+                bail!("found too many hints");
+            }
+            if func.hints.count() >= MAX_WASM_FUNCTION_SIZE {
+                bail!("found too many hints");
+            }
+            let hints = func
+                .hints
+                .into_iter_with_offsets()
+                .collect::<wasmparser::Result<Vec<_>>>()?;
+            self.code_section_hints.push((func.func, hints));
+        }
+        self.code_section_hints.reverse();
         Ok(())
     }
 }
@@ -2701,35 +2828,46 @@ impl NamedLocalPrinter {
         }
     }
 
-    fn start_local(&mut self, name: Option<&Naming>, dst: &mut String) {
+    fn start_local(&mut self, func: u32, local: u32, dst: &mut Printer, state: &State) {
+        let name = state.core.local_names.index_to_name.get(&(func, local));
+
         // Named locals must be in their own group, so if we have a name we need
         // to terminate the previous group.
         if name.is_some() && self.in_group {
-            dst.push(')');
+            dst.result.push(')');
             self.in_group = false;
         }
 
         if self.first {
             self.first = false;
         } else {
-            dst.push(' ');
+            dst.result.push(' ');
         }
 
         // Next we either need a separator if we're already in a group or we
         // need to open a group for our new local.
         if !self.in_group {
-            dst.push('(');
-            dst.push_str(self.group_name);
-            dst.push(' ');
+            dst.result.push('(');
+            dst.result.push_str(self.group_name);
+            dst.result.push(' ');
             self.in_group = true;
         }
 
         // Print the optional name if given...
-        if let Some(name) = name {
-            name.write(dst);
-            dst.push(' ');
+        match name {
+            Some(name) => {
+                name.write(&mut dst.result);
+                dst.result.push(' ');
+                self.end_group_after_local = true;
+            }
+            None if dst.name_unnamed => {
+                dst.result.push_str(&format!("$#local{local} "));
+                self.end_group_after_local = true;
+            }
+            None => {
+                self.end_group_after_local = false;
+            }
         }
-        self.end_group_after_local = name.is_some();
     }
 
     fn end_local(&mut self, dst: &mut String) {
@@ -2956,11 +3094,43 @@ impl Naming {
     }
 }
 
-fn name_map(into: &mut HashMap<u32, Naming>, names: NameMap<'_>, name: &str) -> Result<()> {
+/// Helper trait for the `NamingMap` type's `K` type parameter.
+trait NamingNamespace {
+    fn desc() -> &'static str;
+}
+
+macro_rules! naming_namespaces {
+    ($(struct $name:ident => $desc:tt)*) => ($(
+        struct $name;
+
+        impl NamingNamespace for $name {
+            fn desc() -> &'static str { $desc }
+        }
+    )*)
+}
+
+naming_namespaces! {
+    struct NameFunc => "func"
+    struct NameModule => "module"
+    struct NameInstance => "instance"
+    struct NameGlobal => "global"
+    struct NameMemory => "memory"
+    struct NameLocal => "local"
+    struct NameLabel => "label"
+    struct NameTable => "table"
+    struct NameValue => "value"
+    struct NameType => "type"
+    struct NameData => "data"
+    struct NameElem => "elem"
+    struct NameComponent => "component"
+    struct NameTag => "tag"
+}
+
+fn name_map<K>(into: &mut NamingMap<u32, K>, names: NameMap<'_>, name: &str) -> Result<()> {
     let mut used = HashSet::new();
     for naming in names {
         let naming = naming?;
-        into.insert(
+        into.index_to_name.insert(
             naming.index,
             Naming::new(naming.name, naming.index, name, Some(&mut used)),
         );
