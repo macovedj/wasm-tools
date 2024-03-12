@@ -9,6 +9,7 @@ use clap::Parser;
 
 use wasm_tools::Output;
 use wat::Detect;
+use wit_component::docs::print_docs;
 use wit_component::{
     embed_component_metadata, ComponentEncoder, DecodedWasm, Linker, StringEncoding, WitPrinter,
 };
@@ -452,9 +453,20 @@ pub struct WitOpts {
         long,
         conflicts_with = "wasm",
         conflicts_with = "out_dir",
-        conflicts_with = "wat"
+        conflicts_with = "wat",
+        conflicts_with = "docs"
     )]
     json: bool,
+    /// Emit the WIT document as JSON instead of text.
+    #[clap(
+        short,
+        long,
+        conflicts_with = "wasm",
+        conflicts_with = "out_dir",
+        conflicts_with = "wat",
+        conflicts_with = "json"
+    )]
+    docs: bool,
 }
 
 impl WitOpts {
@@ -470,6 +482,10 @@ impl WitOpts {
         // This interprets all of the output options and performs such a task.
         if self.json {
             self.emit_json(&decoded)?;
+            return Ok(());
+        }
+        if self.docs {
+            self.emit_docs(&decoded)?;
             return Ok(());
         }
         if self.wasm || self.wat {
@@ -630,6 +646,11 @@ impl WitOpts {
         let output = serde_json::to_string_pretty(&resolve)?;
         self.output.output(Output::Json(&output))?;
 
+        Ok(())
+    }
+
+    fn emit_docs(&self, decoded: &DecodedWasm) -> Result<()> {
+        print_docs(decoded);
         Ok(())
     }
 }
