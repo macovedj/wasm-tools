@@ -23,14 +23,15 @@ struct Package {
     name: String,
 }
 #[derive(Deserialize, Serialize)]
-struct World {
+struct PrintingPackage {
     name: String,
     interfaces: Vec<Interface>,
     type_defs: Types,
     funcs: Vec<Func>,
+    worlds: Vec<World>,
 }
 
-impl World {
+impl PrintingPackage {
     fn new(name: String) -> Self {
         Self {
             name,
@@ -40,6 +41,7 @@ impl World {
                 decomposed_types: Vec::new(),
             },
             funcs: Vec::new(),
+            worlds: Vec::new(),
         }
     }
 }
@@ -58,7 +60,7 @@ pub struct DocsPrinter {
 
     interfaces: Vec<Interface>,
 
-    world: Option<World>,
+    package: Option<Package>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -76,6 +78,13 @@ struct Interface {
     funcs: Vec<Func>,
 }
 
+#[derive(Deserialize, Serialize)]
+struct World {
+    name: String,
+    imports: Vec<String>,
+    exports: Vec<String>,
+}
+
 const PRINT_SEMICOLONS_DEFAULT: bool = true;
 impl Default for DocsPrinter {
     fn default() -> Self {
@@ -87,7 +96,7 @@ impl Default for DocsPrinter {
                 Err(_) => PRINT_SEMICOLONS_DEFAULT,
             },
             interfaces: Vec::new(),
-            world: None,
+            package: None,
         }
     }
 }
@@ -167,14 +176,11 @@ impl DocsPrinter {
             TypeOwner::World(_) => None,
             TypeOwner::Interface(id) => {
                 let iface = &resolve.interfaces[id];
-                // dbg!(&iface.name);
                 if let Some(pkg) = iface.package {
                     let pkg = resolve.packages[pkg].clone();
 
                     let namespace = pkg.name.namespace.clone();
                     let name = pkg.name.name.clone();
-                    // let something = pkg.interfaces.get(&id);
-                    // dbg!(&something);
                     let full = if let Some(iface) = iface.name.clone() {
                         Some(format!("{}:{}#{}", namespace, name, iface))
                     } else {
@@ -1245,7 +1251,6 @@ impl DocsPrinter {
                         Handle::Own(own) => {
                             let own_ty = &resolve.types[own];
                             let owner = self.print_owner(own_ty.owner, resolve);
-                            dbg!("owned", &owner);
                             DecomposedType {
                                 owner,
                                 name: None,
@@ -1262,7 +1267,6 @@ impl DocsPrinter {
                         Handle::Borrow(borrow) => {
                             let borrowed_ty = &resolve.types[borrow];
                             let owner = self.print_owner(borrowed_ty.owner, resolve);
-                            dbg!("borrowed", &owner);
                             DecomposedType {
                                 owner: None,
                                 name: None,
@@ -1404,11 +1408,97 @@ impl DocsPrinter {
         (params, ret)
     }
 
-    fn print_world(&mut self, resolve: &Resolve, id: WorldId) {
+    fn print_world(&mut self, resolve: &Resolve, id: WorldId) -> World {
         let world = &resolve.worlds[id];
+        let mut printing_world = World {
+            name: world.name.clone(),
+            imports: Vec::new(),
+            exports: Vec::new(),
+        };
+        for (key, item) in &world.imports {
+            match item {
+                wit_parser::WorldItem::Interface(i) => {
+                    let iface = &resolve.interfaces[*i];
+                    if let Some(pkg_id) = iface.package {
+                        let pkg = &resolve.packages[pkg_id];
+                        let import_name = if let Some(world_pkg) = world.package {
+                            if pkg_id == world_pkg {
+                                if let Some(name) = &iface.name {
+                                    name.to_owned()
+                                } else {
+                                    String::new()
+                                }
+                            } else {
+                                if let Some(name) = &iface.name {
+                                    if let Some(v) = &pkg.name.version {
+                                        format!(
+                                            "{}:{}/{}@{}",
+                                            pkg.name.namespace, pkg.name.name, name, v
+                                        )
+                                    } else {
+                                        format!("{}:{}/{}", pkg.name.namespace, pkg.name.name, name)
+                                    }
+                                } else {
+                                    String::new()
+                                }
+                            }
+                        } else {
+                            String::new()
+                        };
+                        printing_world.imports.push(import_name.to_owned());
+                    }
+                    // let owner = self.print_owner(, resolve)
+                }
+                wit_parser::WorldItem::Function(i) => {
+                    // let func = self.print_function(resolve, func)
+                }
+                wit_parser::WorldItem::Type(id) => todo!(),
+            }
+        }
+        for (key, item) in &world.exports {
+            match item {
+                wit_parser::WorldItem::Interface(i) => {
+                    let iface = &resolve.interfaces[*i];
+                    if let Some(pkg_id) = iface.package {
+                        let pkg = &resolve.packages[pkg_id];
+                        let export_name = if let Some(world_pkg) = world.package {
+                            if pkg_id == world_pkg {
+                                if let Some(name) = &iface.name {
+                                    name.to_owned()
+                                } else {
+                                    String::new()
+                                }
+                            } else {
+                                if let Some(name) = &iface.name {
+                                    if let Some(v) = &pkg.name.version {
+                                        format!(
+                                            "{}:{}/{}@{}",
+                                            pkg.name.namespace, pkg.name.name, name, v
+                                        )
+                                    } else {
+                                        format!("{}:{}/{}", pkg.name.namespace, pkg.name.name, name)
+                                    }
+                                } else {
+                                    String::new()
+                                }
+                            }
+                        } else {
+                            String::new()
+                        };
+                        printing_world.exports.push(export_name.to_owned());
+                    }
+                    // let owner = self.print_owner(, resolve)
+                }
+                wit_parser::WorldItem::Function(i) => {
+                    // let func = self.print_function(resolve, func)
+                }
+                wit_parser::WorldItem::Type(id) => todo!(),
+            }
+        }
         // let type_def =
         // self.print_types(resolve, TypeOwner::World(id), resolve.types, HashMap::new());
         // let type_defs = self.print_types();
+        printing_world
     }
 
     fn print_interface(&mut self, resolve: &Resolve, id: InterfaceId) -> Iface {
@@ -1466,15 +1556,12 @@ struct Iface {
 
 /// Print JSON with info for rendering docs
 pub fn print_docs(decoded: &DecodedWasm) -> String {
-    dbg!(decoded.package());
     let pkg_id = decoded.package();
     let mut printer = DocsPrinter::default();
     let strung = match decoded {
         DecodedWasm::WitPackage(resolve, package_id) => {
-            dbg!("WIT PACKAGE");
             let pkg = &resolve.packages[*package_id];
-            let mut printing_world = World::new(pkg.name.name.clone());
-            dbg!(&pkg.name);
+            let mut printing_pkg = PrintingPackage::new(pkg.name.name.clone());
             for (name, id) in pkg.interfaces.iter() {
                 let docs = printer.print_docs(&resolve.interfaces[*id].docs);
                 let interface = printer.print_interface(&resolve, *id);
@@ -1489,12 +1576,16 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                     type_defs: interface.type_defs,
                     funcs: interface.funcs,
                 };
-                printing_world.interfaces.push(rendered);
+                printing_pkg.interfaces.push(rendered);
             }
-            serde_json::to_string(&printing_world).unwrap()
+            for (name, id) in pkg.worlds.iter() {
+                let docs = printer.print_docs(&resolve.worlds[*id].docs);
+                let world = printer.print_world(&resolve, *id);
+                printing_pkg.worlds.push(world);
+            }
+            serde_json::to_string(&printing_pkg).unwrap()
         }
         DecodedWasm::Component(resolve, world_id) => {
-            dbg!("IMPL PACKAGE");
             // let mut names = HashMap::new();
             // for (_id, pkg) in resolve.packages.iter() {
             //     let cnt = names
@@ -1505,24 +1596,18 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
             //     *cnt += 1;
             // }
             let pkg = &resolve.packages.get(pkg_id).unwrap();
-            dbg!(&pkg.name);
 
             let world = &resolve.worlds[*world_id];
             if let Some(pkg) = world.package {
                 let package = &resolve.packages[pkg];
                 // let pkg_world = package.worlds
             }
-            dbg!(&world.exports);
-            let mut printing_world = World::new(pkg.name.name.clone());
+            let mut printing_pkg = PrintingPackage::new(pkg.name.name.clone());
             for (key, item) in &world.imports {
                 match item {
                     wit_parser::WorldItem::Interface(id) => {
-                        dbg!("INTERFACE");
                         let iface = &resolve.interfaces[*id];
-                        dbg!(&iface.name);
-                        dbg!(&iface.package);
                         let package = &resolve.packages[iface.package.unwrap()];
-                        dbg!(&package.name);
                         let docs = printer.print_docs(&iface.docs);
                         let interface = printer.print_interface(&resolve, *id);
                         let rendered = if let Some(name) = iface.name.clone() {
@@ -1550,13 +1635,12 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                                 funcs: interface.funcs,
                             }
                         };
-                        printing_world.interfaces.push(rendered);
+                        printing_pkg.interfaces.push(rendered);
                     }
                     wit_parser::WorldItem::Function(func) => {
-                        dbg!("FUNC");
                         let docs = printer.print_docs(&func.docs);
                         let (params, result) = printer.print_function(resolve, func);
-                        printing_world.funcs.push(Func {
+                        printing_pkg.funcs.push(Func {
                             name: func.name.clone(),
                             docs,
                             params,
@@ -1565,7 +1649,6 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                     }
                     wit_parser::WorldItem::Type(id) => {
                         let type_def = &resolve.types[*id];
-                        dbg!("THERES A TYPE");
                         match &type_def.kind {
                             TypeDefKind::Record(Record { fields }) => {
                                 let mut field_tys = Vec::new();
@@ -1593,7 +1676,7 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                                         )),
                                     }
                                 }
-                                printing_world
+                                printing_pkg
                                     .type_defs
                                     .decomposed_types
                                     .push(DecomposedType {
@@ -1726,7 +1809,7 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                                         });
                                     }
                                 }
-                                printing_world
+                                printing_pkg
                                     .type_defs
                                     .decomposed_types
                                     .push(DecomposedType {
@@ -1750,7 +1833,7 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                                         methods: None,
                                     });
                                 }
-                                printing_world
+                                printing_pkg
                                     .type_defs
                                     .decomposed_types
                                     .push(DecomposedType {
@@ -1764,23 +1847,25 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                             }
                             TypeDefKind::Option(_) => todo!(),
                             TypeDefKind::Result(_) => todo!(),
-                            TypeDefKind::List(ty) => printing_world
-                                .type_defs
-                                .decomposed_types
-                                .push(DecomposedType {
-                                    owner: None,
-                                    name: type_def.name.clone(),
-                                    docs: type_def.docs.contents.clone(),
-                                    val: "list".to_string(),
-                                    children: Some(vec![
-                                        printer.print_decomposed_type(None, resolve, &ty)
-                                    ]),
-                                    methods: None,
-                                }),
+                            TypeDefKind::List(ty) => {
+                                printing_pkg
+                                    .type_defs
+                                    .decomposed_types
+                                    .push(DecomposedType {
+                                        owner: None,
+                                        name: type_def.name.clone(),
+                                        docs: type_def.docs.contents.clone(),
+                                        val: "list".to_string(),
+                                        children: Some(vec![
+                                            printer.print_decomposed_type(None, resolve, &ty)
+                                        ]),
+                                        methods: None,
+                                    })
+                            }
                             TypeDefKind::Future(_) => todo!(),
                             TypeDefKind::Stream(_) => todo!(),
                             TypeDefKind::Type(ty) => {
-                                printing_world.type_defs.decomposed_types.push(
+                                printing_pkg.type_defs.decomposed_types.push(
                                     printer.print_decomposed_type(
                                         type_def.name.clone(),
                                         resolve,
@@ -1799,8 +1884,6 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                 match item {
                     wit_parser::WorldItem::Interface(id) => {
                         let iface = &resolve.interfaces[*id];
-                        dbg!(&iface.name);
-                        dbg!(&iface.package);
                         let package = &resolve.packages[iface.package.unwrap()];
                         let docs = printer.print_docs(&iface.docs);
                         let interface = printer.print_interface(&resolve, *id);
@@ -1829,13 +1912,12 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                                 funcs: interface.funcs,
                             }
                         };
-                        printing_world.interfaces.push(rendered);
+                        printing_pkg.interfaces.push(rendered);
                     }
                     wit_parser::WorldItem::Function(func) => {
-                        dbg!("FUNC");
                         let docs = printer.print_docs(&func.docs);
                         let (params, result) = printer.print_function(resolve, func);
-                        printing_world.funcs.push(Func {
+                        printing_pkg.funcs.push(Func {
                             name: func.name.clone(),
                             docs,
                             params,
@@ -1844,7 +1926,6 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                     }
                     wit_parser::WorldItem::Type(id) => {
                         let ty = &resolve.types[*id];
-                        dbg!("THERES A TYPE");
                         match ty.kind {
                             TypeDefKind::Record(_) => todo!(),
                             TypeDefKind::Resource => todo!(),
@@ -1885,8 +1966,7 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
             // printer.interfaces.push(rendered);
             // }
             // }
-            dbg!("DID IT ALL");
-            serde_json::to_string(&printing_world).unwrap()
+            serde_json::to_string(&printing_pkg).unwrap()
         }
     };
     // let strung = serde_json::to_string(&printer.interfaces).unwrap();
