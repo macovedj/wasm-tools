@@ -22,9 +22,17 @@ struct Package {
     namespace: String,
     name: String,
 }
+
+#[derive(Deserialize, Serialize)]
+enum BinaryKind {
+    Core,
+    Wit,
+    Component,
+}
 #[derive(Deserialize, Serialize)]
 struct PrintingPackage {
     name: String,
+    kind: BinaryKind,
     interfaces: Vec<Interface>,
     type_defs: Types,
     funcs: Vec<Func>,
@@ -32,9 +40,10 @@ struct PrintingPackage {
 }
 
 impl PrintingPackage {
-    fn new(name: String) -> Self {
+    fn new(name: String, kind: BinaryKind) -> Self {
         Self {
             name,
+            kind,
             interfaces: Vec::new(),
             type_defs: Types {
                 use_decls: Vec::new(),
@@ -1561,7 +1570,7 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
     let strung = match decoded {
         DecodedWasm::WitPackage(resolve, package_id) => {
             let pkg = &resolve.packages[*package_id];
-            let mut printing_pkg = PrintingPackage::new(pkg.name.name.clone());
+            let mut printing_pkg = PrintingPackage::new(pkg.name.name.clone(), BinaryKind::Wit);
             for (name, id) in pkg.interfaces.iter() {
                 let docs = printer.print_docs(&resolve.interfaces[*id].docs);
                 let interface = printer.print_interface(&resolve, *id);
@@ -1602,7 +1611,8 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                 let package = &resolve.packages[pkg];
                 // let pkg_world = package.worlds
             }
-            let mut printing_pkg = PrintingPackage::new(pkg.name.name.clone());
+            let mut printing_pkg =
+                PrintingPackage::new(pkg.name.name.clone(), BinaryKind::Component);
             for (key, item) in &world.imports {
                 match item {
                     wit_parser::WorldItem::Interface(id) => {
