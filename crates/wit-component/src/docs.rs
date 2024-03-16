@@ -214,24 +214,43 @@ impl DocsPrinter {
         let owner = self.print_owner(ty.owner, resolve);
         let mut methods = Vec::new();
         for func in funcs {
+            let docs = if let Some(docs) = func.docs.contents.clone() {
+                docs
+            } else {
+                "".to_string()
+            };
             match func.kind {
                 FunctionKind::Freestanding => todo!(),
                 FunctionKind::Method(_) => {
                     let (params, result) = self.print_function(resolve, func);
-                    let docs = if let Some(docs) = func.docs.contents.clone() {
-                        docs
-                    } else {
-                        "".to_string()
-                    };
                     methods.push(Func {
                         name: func.name.clone(),
+                        is_static: false,
                         docs,
                         params,
                         result,
                     })
                 }
-                FunctionKind::Static(_) => {}
-                FunctionKind::Constructor(constructor) => {}
+                FunctionKind::Static(_) => {
+                    let (params, result) = self.print_function(resolve, func);
+                    methods.push(Func {
+                        name: func.name.clone(),
+                        is_static: true,
+                        docs,
+                        params,
+                        result,
+                    })
+                }
+                FunctionKind::Constructor(_) => {
+                    let (params, result) = self.print_function(resolve, func);
+                    methods.push(Func {
+                        name: "constructor".to_string(),
+                        is_static: false,
+                        docs,
+                        params,
+                        result,
+                    })
+                }
             }
         }
         DecomposedType {
@@ -576,7 +595,11 @@ impl DocsPrinter {
                                     }
                                 }
                                 _ => {
-                                    case_types.push(self.print_decomposed_type(None, resolve, &ty));
+                                    case_types.push(self.print_decomposed_type(
+                                        Some(case.name.clone()),
+                                        resolve,
+                                        &ty,
+                                    ));
                                 }
                             }
                         } else {
@@ -1496,17 +1519,11 @@ impl DocsPrinter {
                         };
                         printing_world.exports.push(export_name.to_owned());
                     }
-                    // let owner = self.print_owner(, resolve)
                 }
-                wit_parser::WorldItem::Function(i) => {
-                    // let func = self.print_function(resolve, func)
-                }
+                wit_parser::WorldItem::Function(i) => {}
                 wit_parser::WorldItem::Type(id) => todo!(),
             }
         }
-        // let type_def =
-        // self.print_types(resolve, TypeOwner::World(id), resolve.types, HashMap::new());
-        // let type_defs = self.print_types();
         printing_world
     }
 
@@ -1540,6 +1557,7 @@ impl DocsPrinter {
             let (params, result) = self.print_function(resolve, func);
             funcs.push(Func {
                 name: name.to_string(),
+                is_static: false,
                 docs,
                 params,
                 result,
@@ -1550,9 +1568,16 @@ impl DocsPrinter {
     }
 }
 
+/// is false
+pub fn is_false(b: &bool) -> bool {
+    !b
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct Func {
     name: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    is_static: bool,
     docs: String,
     params: Vec<(String, DecomposedType)>,
     result: Vec<(String, DecomposedType)>,
@@ -1595,21 +1620,11 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
             serde_json::to_string(&printing_pkg).unwrap()
         }
         DecodedWasm::Component(resolve, world_id) => {
-            // let mut names = HashMap::new();
-            // for (_id, pkg) in resolve.packages.iter() {
-            //     let cnt = names
-            //         .entry(&pkg.name.name)
-            //         .or_insert(HashMap::new())
-            //         .entry(&pkg.name.namespace)
-            //         .or_insert(0);
-            //     *cnt += 1;
-            // }
             let pkg = &resolve.packages.get(pkg_id).unwrap();
 
             let world = &resolve.worlds[*world_id];
             if let Some(pkg) = world.package {
                 let package = &resolve.packages[pkg];
-                // let pkg_world = package.worlds
             }
             let mut printing_pkg =
                 PrintingPackage::new(pkg.name.name.clone(), BinaryKind::Component);
@@ -1652,6 +1667,7 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                         let (params, result) = printer.print_function(resolve, func);
                         printing_pkg.funcs.push(Func {
                             name: func.name.clone(),
+                            is_static: false,
                             docs,
                             params,
                             result,
@@ -1885,7 +1901,6 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                             }
                             TypeDefKind::Unknown => todo!(),
                         }
-                        // printer.print_type(ty, resolve);
                     }
                 }
             }
@@ -1929,6 +1944,7 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                         let (params, result) = printer.print_function(resolve, func);
                         printing_pkg.funcs.push(Func {
                             name: func.name.clone(),
+                            is_static: false,
                             docs,
                             params,
                             result,
@@ -1952,35 +1968,12 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                             TypeDefKind::Type(_) => todo!(),
                             TypeDefKind::Unknown => todo!(),
                         }
-                        // printer.print_type(ty, resolve);
                     }
                 }
             }
-            // if let Some(pkg_id) = world.package {
-            //     let pkg = &resolve.packages[pkg_id];
-            //     dbg!(&pkg.interfaces);
-            // }
-            // dbg!("SOME PACKAGE");
-            // let package = &resolve.packages[pkg_id];
-            // for (name, id) in world..iter() {
-            // dbg!("WERE THERE ANY", &name);
-            // let docs = printer.print_docs(&world.docs);
-
-            // let interface = printer.print_interface(&resolve, *id);
-            // let rendered = Interface {
-            //     docs,
-            //     name: name.to_string(),
-            //     type_defs: interface.type_defs,
-            //     funcs: interface.funcs,
-            // };
-            // printer.interfaces.push(rendered);
-            // }
-            // }
             serde_json::to_string(&printing_pkg).unwrap()
         }
     };
-    // let strung = serde_json::to_string(&printer.interfaces).unwrap();
-
     fs::write("./docs.json", strung.clone()).unwrap();
     strung
 }
