@@ -528,9 +528,10 @@ impl DocsPrinter {
                         if let Some(ty) = case.ty {
                             match ty {
                                 Type::Id(id) => {
-                                    let child_ty = &resolve.types[id];
-                                    let owner = self.print_owner(child_ty.owner, resolve);
-                                    match child_ty.kind {
+                                    let case_ty = &resolve.types[id];
+
+                                    let owner = self.print_owner(case_ty.owner, resolve);
+                                    match case_ty.kind {
                                         TypeDefKind::Handle(handle) => match handle {
                                             Handle::Own(owned) => {
                                                 let owned_ty = &resolve.types[owned];
@@ -574,27 +575,17 @@ impl DocsPrinter {
                                             }
                                         },
                                         _ => {
-                                            if let Some(name) = child_ty.name.clone() {
-                                                case_types.push(DecomposedType {
-                                                    owner: owner.clone(),
-                                                    name: Some(case.name.clone()),
-                                                    docs: case.docs.contents,
-                                                    val: case.name.clone(),
-                                                    children: Some(vec![DecomposedType {
-                                                        owner: owner.clone(),
-                                                        name: None,
-                                                        docs: child_ty.docs.contents.clone(),
-                                                        val: name,
-                                                        children: None,
-                                                        methods: None,
-                                                    }]),
-                                                    methods: None,
-                                                });
-                                            }
+                                            let check = self.print_decomposed_type(
+                                                Some(case.name.clone()),
+                                                resolve,
+                                                &ty,
+                                            );
+                                            case_types.push(check);
                                         }
                                     }
                                 }
                                 _ => {
+                                    let case_ty = &resolve.types[id];
                                     case_types.push(self.print_decomposed_type(
                                         Some(case.name.clone()),
                                         resolve,
@@ -607,7 +598,7 @@ impl DocsPrinter {
                                 owner: None,
                                 name: Some(case.name.clone()),
                                 docs: case.docs.contents,
-                                val: case.name.clone(),
+                                val: "".to_string(),
                                 children: None,
                                 methods: None,
                             });
@@ -629,7 +620,7 @@ impl DocsPrinter {
                             owner: None,
                             name: Some(case.name.clone()),
                             docs: case.docs.contents,
-                            val: case.name.clone(),
+                            val: "".to_string(),
                             children: None,
                             methods: None,
                         });
@@ -965,14 +956,23 @@ impl DocsPrinter {
                     TypeDefKind::Variant(Variant { cases }) => {
                         let mut case_types = Vec::new();
                         for case in cases {
-                            case_types.push(DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: case.docs.contents.clone(),
-                                val: case.name.clone(),
-                                children: None,
-                                methods: None,
-                            });
+                            if let Some(case_ty) = case.ty {
+                                let decomposed = self.print_decomposed_type(
+                                    Some(case.name.clone()),
+                                    resolve,
+                                    &case_ty,
+                                );
+                                case_types.push(decomposed);
+                            } else {
+                                case_types.push(DecomposedType {
+                                    owner: None,
+                                    name: Some(case.name.clone()),
+                                    docs: case.docs.contents.clone(),
+                                    val: "".to_string(),
+                                    children: None,
+                                    methods: None,
+                                });
+                            };
                         }
                         DecomposedType {
                             owner: None,
