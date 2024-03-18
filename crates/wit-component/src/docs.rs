@@ -1019,19 +1019,19 @@ impl DocsPrinter {
                         }
                     }
                     TypeDefKind::Option(option_ty) => match option_ty {
-                        Type::Bool => todo!(),
-                        Type::U8 => todo!(),
-                        Type::U16 => todo!(),
-                        Type::U32 => todo!(),
-                        Type::U64 => todo!(),
-                        Type::S8 => todo!(),
-                        Type::S16 => todo!(),
-                        Type::S32 => todo!(),
-                        Type::S64 => todo!(),
-                        Type::Float32 => todo!(),
-                        Type::Float64 => todo!(),
-                        Type::Char => todo!(),
-                        Type::String => todo!(),
+                        // Type::Bool => todo!(),
+                        // Type::U8 => todo!(),
+                        // Type::U16 => todo!(),
+                        // Type::U32 => todo!(),
+                        // Type::U64 => todo!(),
+                        // Type::S8 => todo!(),
+                        // Type::S16 => todo!(),
+                        // Type::S32 => todo!(),
+                        // Type::S64 => todo!(),
+                        // Type::Float32 => todo!(),
+                        // Type::Float64 => todo!(),
+                        // Type::Char => todo!(),
+                        // Type::String => todo!(),
                         Type::Id(id) => {
                             let ty = &resolve.types[*id];
                             let owner = self.print_owner(ty.owner, resolve);
@@ -1055,6 +1055,14 @@ impl DocsPrinter {
                                 methods: None,
                             }
                         }
+                        _ => DecomposedType {
+                            owner: None,
+                            name: None,
+                            docs: ty.docs.contents.clone(),
+                            val: "option".to_string(),
+                            children: Some(vec![self.print_type(option_ty, resolve)]),
+                            methods: None,
+                        },
                     },
                     TypeDefKind::Result(Result_ { ok, err }) => {
                         let mut result_types = Vec::new();
