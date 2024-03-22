@@ -334,17 +334,13 @@ impl DocsPrinter {
                     for field in fields {
                         match field.ty {
                             Type::Id(id) => {
-                                let decomposed = self.print_decomposed_type(
-                                    Some(field.name.clone()),
-                                    resolve,
-                                    &field.ty,
-                                );
-                                field_tys.push(decomposed);
+                                let check = self.print_type(Some(field.name), &field.ty, resolve);
+                                field_tys.push(check);
                             }
-                            _ => field_tys.push(self.print_decomposed_type(
+                            _ => field_tys.push(self.print_type(
                                 Some(field.name),
-                                resolve,
                                 &field.ty,
+                                resolve,
                             )),
                         }
                     }
@@ -569,17 +565,15 @@ impl DocsPrinter {
                                             }
                                         },
                                         _ => {
-                                            let check = self.print_decomposed_type(
+                                            case_types.push(self.print_type(
                                                 Some(case.name.clone()),
-                                                resolve,
                                                 &ty,
-                                            );
-                                            case_types.push(check);
+                                                resolve,
+                                            ));
                                         }
                                     }
                                 }
                                 _ => {
-                                    let case_ty = &resolve.types[id];
                                     case_types.push(self.print_decomposed_type(
                                         Some(case.name.clone()),
                                         resolve,
@@ -588,8 +582,9 @@ impl DocsPrinter {
                                 }
                             }
                         } else {
+                            let owner = self.print_owner(type_def.owner, resolve);
                             case_types.push(DecomposedType {
-                                owner: None,
+                                owner,
                                 name: Some(case.name.clone()),
                                 docs: case.docs.contents,
                                 val: "".to_string(),
@@ -679,7 +674,7 @@ impl DocsPrinter {
                     name: type_def.name.clone(),
                     docs: type_def.docs.contents.clone(),
                     val: "list".to_string(),
-                    children: Some(vec![self.print_decomposed_type(None, resolve, &ty)]),
+                    children: Some(vec![self.print_type(None, &ty, resolve)]),
                     methods: None,
                 }),
                 TypeDefKind::Future(_) => todo!(),
@@ -811,12 +806,11 @@ impl DocsPrinter {
                     TypeDefKind::Record(Record { fields }) => {
                         let mut decomposed_fields = Vec::new();
                         for field in fields {
-                            let decomposed = self.print_decomposed_type(
+                            decomposed_fields.push(self.print_type(
                                 Some(field.name.clone()),
-                                resolve,
                                 &field.ty,
-                            );
-                            decomposed_fields.push(decomposed)
+                                resolve,
+                            ))
                         }
                         DecomposedType {
                             owner: owner.clone(),
@@ -1018,12 +1012,12 @@ impl DocsPrinter {
                             let ty = &resolve.types[*id];
                             let owner = self.print_owner(ty.owner, resolve);
                             DecomposedType {
-                                owner: None,
+                                owner: owner.clone(),
                                 name: None,
                                 docs: ty.docs.contents.clone(),
                                 val: "option".to_string(),
                                 children: Some(vec![DecomposedType {
-                                    owner: owner,
+                                    owner: owner.clone(),
                                     name: ty.name.clone(),
                                     docs: ty.docs.contents.clone(),
                                     val: if let Some(name) = &ty.name {
@@ -1038,11 +1032,11 @@ impl DocsPrinter {
                             }
                         }
                         _ => DecomposedType {
-                            owner: None,
-                            name,
+                            owner,
+                            name: name.clone(),
                             docs: ty.docs.contents.clone(),
                             val: "option".to_string(),
-                            children: Some(vec![self.print_type(option_ty, resolve)]),
+                            children: Some(vec![self.print_type(name, option_ty, resolve)]),
                             methods: None,
                         },
                     },
@@ -1106,7 +1100,7 @@ impl DocsPrinter {
                         name,
                         docs: ty.docs.contents.clone(),
                         val: "list".to_string(),
-                        children: Some(vec![self.print_decomposed_type(None, resolve, &list_ty)]),
+                        children: Some(vec![self.print_type(None, &list_ty, resolve)]),
                         methods: None,
                     },
                     TypeDefKind::Future(_) => todo!(),
@@ -1144,11 +1138,11 @@ impl DocsPrinter {
         }
     }
 
-    fn print_type(&self, ty: &Type, resolve: &Resolve) -> DecomposedType {
+    fn print_type(&self, name: Option<String>, ty: &Type, resolve: &Resolve) -> DecomposedType {
         match ty {
             Type::Bool => DecomposedType {
                 owner: None,
-                name: None,
+                name,
                 docs: None,
                 val: "bool".to_string(),
                 children: None,
@@ -1156,7 +1150,7 @@ impl DocsPrinter {
             },
             Type::U8 => DecomposedType {
                 owner: None,
-                name: None,
+                name,
                 docs: None,
                 val: "u8".to_string(),
                 children: None,
@@ -1164,7 +1158,7 @@ impl DocsPrinter {
             },
             Type::U16 => DecomposedType {
                 owner: None,
-                name: None,
+                name,
                 docs: None,
                 val: "u16".to_string(),
                 children: None,
@@ -1172,7 +1166,7 @@ impl DocsPrinter {
             },
             Type::U32 => DecomposedType {
                 owner: None,
-                name: None,
+                name,
                 docs: None,
                 val: "u32".to_string(),
                 children: None,
@@ -1180,7 +1174,7 @@ impl DocsPrinter {
             },
             Type::U64 => DecomposedType {
                 owner: None,
-                name: None,
+                name,
                 docs: None,
                 val: "u64".to_string(),
                 children: None,
@@ -1188,7 +1182,7 @@ impl DocsPrinter {
             },
             Type::S8 => DecomposedType {
                 owner: None,
-                name: None,
+                name,
                 docs: None,
                 val: "s8".to_string(),
                 children: None,
@@ -1196,7 +1190,7 @@ impl DocsPrinter {
             },
             Type::S16 => DecomposedType {
                 owner: None,
-                name: None,
+                name,
                 docs: None,
                 val: "s16".to_string(),
                 children: None,
@@ -1204,7 +1198,7 @@ impl DocsPrinter {
             },
             Type::S32 => DecomposedType {
                 owner: None,
-                name: None,
+                name,
                 docs: None,
                 val: "s32".to_string(),
                 children: None,
@@ -1212,7 +1206,7 @@ impl DocsPrinter {
             },
             Type::S64 => DecomposedType {
                 owner: None,
-                name: None,
+                name,
                 docs: None,
                 val: "s64".to_string(),
                 children: None,
@@ -1220,7 +1214,7 @@ impl DocsPrinter {
             },
             Type::Float32 => DecomposedType {
                 owner: None,
-                name: None,
+                name,
                 docs: None,
                 val: "float32".to_string(),
                 children: None,
@@ -1228,7 +1222,7 @@ impl DocsPrinter {
             },
             Type::Float64 => DecomposedType {
                 owner: None,
-                name: None,
+                name,
                 docs: None,
                 val: "float64".to_string(),
                 children: None,
@@ -1236,7 +1230,7 @@ impl DocsPrinter {
             },
             Type::Char => DecomposedType {
                 owner: None,
-                name: None,
+                name,
                 docs: None,
                 val: "char".to_string(),
                 children: None,
@@ -1244,7 +1238,7 @@ impl DocsPrinter {
             },
             Type::String => DecomposedType {
                 owner: None,
-                name: None,
+                name,
                 docs: None,
                 val: "string".to_string(),
                 children: None,
@@ -1257,7 +1251,7 @@ impl DocsPrinter {
                         let owner = self.print_owner(ty.owner, resolve);
                         DecomposedType {
                             owner,
-                            name: None,
+                            name: name,
                             docs: None,
                             val: if let Some(name) = ty.name.clone() {
                                 name.to_string()
@@ -1275,7 +1269,7 @@ impl DocsPrinter {
                             let owner = self.print_owner(own_ty.owner, resolve);
                             DecomposedType {
                                 owner,
-                                name: None,
+                                name: name,
                                 docs: None,
                                 val: if let Some(name) = own_ty.name.clone() {
                                     name.to_string()
@@ -1313,7 +1307,22 @@ impl DocsPrinter {
                     TypeDefKind::Tuple(Tuple { types }) => {
                         let mut printed_types = Vec::new();
                         for ty in types {
-                            printed_types.push(self.print_type(&ty, resolve))
+                            if let Type::Id(id) = ty {
+                                let inner = &resolve.types[id];
+                                let owner = self.print_owner(inner.owner, resolve);
+                                if let Some(inner_name) = inner.name.clone() {
+                                    printed_types.push(DecomposedType {
+                                        owner,
+                                        name: name.clone(),
+                                        docs: None,
+                                        val: inner_name,
+                                        children: None,
+                                        methods: None,
+                                    })
+                                }
+                            } else {
+                                printed_types.push(self.print_type(None, &ty, resolve))
+                            }
                         }
                         DecomposedType {
                             owner: None,
@@ -1326,34 +1335,48 @@ impl DocsPrinter {
                     }
                     TypeDefKind::Flags(_) | TypeDefKind::Variant(_) | TypeDefKind::Enum(_) => {
                         let owner = self.print_owner(ty.owner, resolve);
+                        if let Some(ty_name) = ty.name.clone() {
+                            DecomposedType {
+                                owner,
+                                name: Some(ty_name.clone()),
+                                docs: None,
+                                val: if let Some(name) = ty.name.clone() {
+                                    name.to_string()
+                                } else {
+                                    "".to_string()
+                                },
+                                children: None,
+                                methods: None,
+                            }
+                        } else {
+                            DecomposedType {
+                                owner,
+                                name: name.clone(),
+                                docs: None,
+                                val: "variant".to_string(),
+                                children: None,
+                                methods: None,
+                            }
+                        }
+                    }
+                    TypeDefKind::Option(inner) => {
+                        let owner = self.print_owner(ty.owner, resolve);
                         DecomposedType {
                             owner,
-                            name: None,
+                            name: name.clone(),
                             docs: None,
-                            val: if let Some(name) = ty.name.clone() {
-                                name.to_string()
-                            } else {
-                                "".to_string()
-                            },
-                            children: None,
+                            val: "option".to_string(),
+                            children: Some(vec![self.print_type(name, &inner, resolve)]),
                             methods: None,
                         }
                     }
-                    TypeDefKind::Option(inner) => DecomposedType {
-                        owner: None,
-                        name: None,
-                        docs: None,
-                        val: "option".to_string(),
-                        children: Some(vec![self.print_type(&inner, resolve)]),
-                        methods: None,
-                    },
                     TypeDefKind::Result(Result_ { ok, err }) => {
                         let mut result_types = Vec::new();
                         if let Some(ok_ty) = ok {
-                            result_types.push(self.print_type(&ok_ty, resolve));
+                            result_types.push(self.print_type(name.clone(), &ok_ty, resolve));
                         }
                         if let Some(err_ty) = err {
-                            result_types.push(self.print_type(&err_ty, resolve));
+                            result_types.push(self.print_type(name, &err_ty, resolve));
                         }
                         DecomposedType {
                             owner: None,
@@ -1364,21 +1387,35 @@ impl DocsPrinter {
                             methods: None,
                         }
                     }
-                    TypeDefKind::List(inner) => DecomposedType {
-                        owner: None,
-                        name: None,
-                        docs: None,
-                        val: "list".to_string(),
-                        children: Some(vec![self.print_type(&inner, resolve)]),
-                        methods: None,
-                    },
+                    TypeDefKind::List(inner) => {
+                        let owner = self.print_owner(ty.owner, resolve);
+                        if let Some(ty_name) = ty.name.clone() {
+                            DecomposedType {
+                                owner,
+                                name: Some(ty_name.clone()),
+                                docs: None,
+                                val: ty_name,
+                                children: None,
+                                methods: None,
+                            }
+                        } else {
+                            DecomposedType {
+                                owner,
+                                name: name.clone(),
+                                docs: None,
+                                val: "list".to_string(),
+                                children: Some(vec![self.print_type(name, &inner, resolve)]),
+                                methods: None,
+                            }
+                        }
+                    }
                     TypeDefKind::Future(_) => todo!(),
                     TypeDefKind::Stream(_) => todo!(),
-                    TypeDefKind::Type(_) => {
+                    TypeDefKind::Type(id) => {
                         let owner = self.print_owner(ty.owner, resolve);
                         DecomposedType {
                             owner,
-                            name: None,
+                            name: name,
                             docs: ty.docs.contents.clone(),
                             val: if let Some(name) = ty.name.clone() {
                                 name.to_string()
@@ -1409,7 +1446,10 @@ impl DocsPrinter {
             _ => 0,
         };
         for (name, ty) in func.params.iter().skip(params_to_skip) {
-            params.push((name.clone(), self.print_type(ty, resolve)));
+            params.push((
+                name.clone(),
+                self.print_type(Some(name.clone()), ty, resolve),
+            ));
         }
 
         match &func.results {
@@ -1422,9 +1462,7 @@ impl DocsPrinter {
                 }
             },
             Results::Anon(ty) => {
-                // let decomposed = self.print_decomposed_type(None, resolve, ty);
-                // ret.push(("".to_string(), decomposed));
-                ret.push(("".to_string(), self.print_type(ty, resolve)));
+                ret.push(("".to_string(), self.print_type(None, ty, resolve)));
             }
         }
         (params, ret)
