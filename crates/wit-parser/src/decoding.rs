@@ -1,7 +1,6 @@
-use crate::docs::PackageDocs;
 use crate::*;
-use anyhow::{anyhow, bail, Context, Result};
-use indexmap::{IndexMap, IndexSet};
+use anyhow::{anyhow, bail};
+use indexmap::IndexSet;
 use std::mem;
 use std::{collections::HashMap, io::Read};
 use wasmparser::Chunk;
@@ -1484,8 +1483,8 @@ impl WitPackageDecoder<'_> {
             PrimitiveValType::Bool => Type::Bool,
             PrimitiveValType::Char => Type::Char,
             PrimitiveValType::String => Type::String,
-            PrimitiveValType::Float32 => Type::Float32,
-            PrimitiveValType::Float64 => Type::Float64,
+            PrimitiveValType::F32 => Type::F32,
+            PrimitiveValType::F64 => Type::F64,
         }
     }
 

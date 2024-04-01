@@ -128,6 +128,7 @@ fn smoke_test_wasm_gc() {
         let mut u = Unstructured::new(&buf);
         let config = Config {
             gc_enabled: true,
+            reference_types_enabled: true,
             ..Config::default()
         };
         if let Ok(module) = Module::new(config, &mut u) {
@@ -167,6 +168,7 @@ fn parser_features_from_config(config: &Config) -> WasmFeatures {
         tail_call: config.tail_call_enabled,
 
         threads: false,
+        shared_everything_threads: false,
         floats: true,
         extended_const: false,
         component_model: false,

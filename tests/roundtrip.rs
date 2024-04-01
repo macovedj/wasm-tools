@@ -22,12 +22,14 @@
 //!     cargo test --test roundtrip local/ref.wat
 
 use anyhow::{anyhow, bail, Context, Result};
+use libtest_mimic::{Arguments, FormatSetting, Trial};
 use rayon::prelude::*;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::str;
 use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+use std::sync::Arc;
 use wasmparser::*;
 use wast::core::{Module, ModuleKind};
 use wast::lexer::Lexer;
@@ -38,58 +40,36 @@ fn main() {
     env_logger::init();
 
     let tests = find_tests();
-    let filter = std::env::args().nth(1);
     let bless = std::env::var_os("BLESS").is_some();
-    if bless {
+
+    let state = Arc::new(TestState::default());
+    let mut trials = Vec::new();
+    for test in tests {
+        let contents = std::fs::read(&test).unwrap();
+        let skip = skip_test(&test, &contents);
+        let trial = Trial::test(format!("{test:?}"), {
+            let state = state.clone();
+            move || {
+                state
+                    .run_test(&test, &contents)
+                    .map_err(|e| format!("{e:?}").into())
+            }
+        })
+        .with_ignored_flag(skip);
+        trials.push(trial);
+    }
+
+    let mut args = Arguments::from_args();
+    if args.format.is_none() {
+        args.format = Some(FormatSetting::Terse);
+    }
+    if cfg!(target_family = "wasm") && !cfg!(target_feature = "atomics") {
+        args.test_threads = Some(1);
+    }
+    if bless && !args.list {
         drop(std::fs::remove_dir_all("tests/snapshots"));
     }
-
-    let tests = tests
-        .par_iter()
-        .filter_map(|test| {
-            if let Some(filter) = &filter {
-                if let Some(s) = test.to_str() {
-                    if !s.contains(filter) {
-                        return None;
-                    }
-                }
-            }
-            let contents = std::fs::read(test).unwrap();
-            if skip_test(&test, &contents) {
-                None
-            } else {
-                Some((test, contents))
-            }
-        })
-        .collect::<Vec<_>>();
-
-    println!("running {} test files\n", tests.len());
-
-    let state = TestState::default();
-    let errors = tests
-        .par_iter()
-        .filter_map(|(test, contents)| {
-            let start = std::time::Instant::now();
-            let result = state.run_test(test, contents).err();
-            if start.elapsed().as_secs() > 2 {
-                println!("{test:?} SLOW");
-            }
-            result
-        })
-        .collect::<Vec<_>>();
-
-    if !errors.is_empty() {
-        for msg in errors.iter() {
-            eprintln!("{:?}", msg);
-        }
-
-        panic!("{} tests failed", errors.len())
-    }
-
-    println!(
-        "test result: ok. {} directives passed\n",
-        state.ntests.load(SeqCst)
-    );
+    libtest_mimic::run(&args, trials).exit();
 }
 
 /// Recursively finds all tests in a whitelisted set of directories which we
@@ -235,6 +215,8 @@ impl TestState {
     }
 
     fn test_wast(&self, test: &Path, contents: &[u8]) -> Result<()> {
+        self.test_json_from_wast(test)
+            .context("failed to run `json-from-wast` cli subcommand")?;
         let contents = str::from_utf8(contents)?;
         macro_rules! adjust {
             ($e:expr) => {{
@@ -536,7 +518,8 @@ impl TestState {
     }
 
     fn dump(&self, bytes: &[u8]) -> Result<String> {
-        let mut dump = Command::new(env!("CARGO_BIN_EXE_wasm-tools"))
+        let mut dump = self
+            .wasm_tools()
             .arg("dump")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -550,9 +533,52 @@ impl TestState {
         Ok(stdout)
     }
 
+    fn test_json_from_wast(&self, path: &Path) -> Result<()> {
+        // component model tests aren't tested through json-from-wast at this time.
+        if path.iter().any(|p| p == "component-model") {
+            return Ok(());
+        }
+
+        // This has an `assert_invalid` which should be `assert_malformed`, so
+        // skip it.
+        if path.ends_with("gc-subtypes-invalid.wast") {
+            return Ok(());
+        }
+
+        // No processes on wasm
+        if cfg!(target_family = "wasm") {
+            return Ok(());
+        }
+
+        // Generate the same output on windows and unix
+        let path = path.to_str().unwrap().replace("\\", "/");
+
+        let mut cmd = self.wasm_tools();
+        let td = tempfile::TempDir::new()?;
+        cmd.arg("json-from-wast")
+            .arg(&path)
+            .arg("--pretty")
+            .arg("--wasm-dir")
+            .arg(td.path());
+        let output = cmd.output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!("failed to run {cmd:?}\nstdout: {stdout}\nstderr: {stderr}");
+        }
+        self.snapshot("json", path.as_ref(), &stdout)
+            .context("failed to validate the `json-from-wast` snapshot")?;
+        Ok(())
+    }
+
+    fn wasm_tools(&self) -> Command {
+        Command::new(env!("CARGO_BIN_EXE_wasm-tools"))
+    }
+
     fn wasmparser_validator_for(&self, test: &Path) -> Validator {
         let mut features = WasmFeatures {
             threads: true,
+            shared_everything_threads: false,
             reference_types: true,
             simd: true,
             relaxed_simd: true,
@@ -600,6 +626,7 @@ impl TestState {
                     features.gc = false;
                     features.component_model = false;
                     features.component_model_values = false;
+                    features.shared_everything_threads = false;
                 }
                 "floats-disabled.wast" => features.floats = false,
                 "threads" => {
@@ -612,6 +639,10 @@ impl TestState {
                 "tail-call" => features.tail_call = true,
                 "memory64" => features.memory64 = true,
                 "component-model" => features.component_model = true,
+                "shared-everything-threads" => {
+                    features.component_model = true;
+                    features.shared_everything_threads = true;
+                }
                 "multi-memory" => features.multi_memory = true,
                 "extended-const" => features.extended_const = true,
                 "function-references" => features.function_references = true,
@@ -810,6 +841,16 @@ fn error_matches(error: &str, message: &str) -> bool {
 
     if message.starts_with("type mismatch") {
         return error.starts_with("type mismatch");
+    }
+
+    if message == "malformed mutability" {
+        // When parsing a global `shared` type (e.g., `global (mut shared i32)
+        // ...`), many spec tests expect a `malformed mutability` error.
+        // Previously, `0x2` was an invalid flag but it now means `shared`. We
+        // accept either (a) a new, more accurate error message or (b) a
+        // validation error instead.
+        return error.contains("malformed global flags")
+            || error.contains("require the shared-everything-threads proposal");
     }
 
     return false;

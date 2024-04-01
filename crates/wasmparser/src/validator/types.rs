@@ -132,8 +132,8 @@ fn push_primitive_wasm_types(ty: &PrimitiveValType, lowered_types: &mut LoweredT
         | PrimitiveValType::U32
         | PrimitiveValType::Char => lowered_types.push(ValType::I32),
         PrimitiveValType::S64 | PrimitiveValType::U64 => lowered_types.push(ValType::I64),
-        PrimitiveValType::Float32 => lowered_types.push(ValType::F32),
-        PrimitiveValType::Float64 => lowered_types.push(ValType::F64),
+        PrimitiveValType::F32 => lowered_types.push(ValType::F32),
+        PrimitiveValType::F64 => lowered_types.push(ValType::F64),
         PrimitiveValType::String => {
             lowered_types.push(ValType::I32) && lowered_types.push(ValType::I32)
         }
@@ -3082,7 +3082,7 @@ impl TypeAlloc {
             self.free_variables_component_entity(ty, set);
         }
         for (id, _path) in i.imported_resources.iter().chain(&i.defined_resources) {
-            set.remove(id);
+            set.swap_remove(id);
         }
     }
 
@@ -3099,7 +3099,7 @@ impl TypeAlloc {
             self.free_variables_component_entity(ty, set);
         }
         for id in i.defined_resources.iter() {
-            set.remove(id);
+            set.swap_remove(id);
         }
     }
 

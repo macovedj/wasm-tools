@@ -493,11 +493,14 @@ impl Encode for MemoryType {
 impl<'a> Encode for GlobalType<'a> {
     fn encode(&self, e: &mut Vec<u8>) {
         self.ty.encode(e);
+        let mut flags = 0;
         if self.mutable {
-            e.push(0x01);
-        } else {
-            e.push(0x00);
+            flags |= 0b01;
         }
+        if self.shared {
+            flags |= 0b10;
+        }
+        e.push(flags);
     }
 }
 
@@ -749,19 +752,6 @@ impl Encode for BlockType<'_> {
     }
 }
 
-impl Encode for FuncBindType<'_> {
-    fn encode(&self, e: &mut Vec<u8>) {
-        self.ty.encode(e);
-    }
-}
-
-impl Encode for LetType<'_> {
-    fn encode(&self, e: &mut Vec<u8>) {
-        self.block.encode(e);
-        self.locals.encode(e);
-    }
-}
-
 impl Encode for LaneArg {
     fn encode(&self, e: &mut Vec<u8>) {
         self.lane.encode(e);
@@ -845,13 +835,13 @@ impl Encode for BrTableIndices<'_> {
     }
 }
 
-impl Encode for Float32 {
+impl Encode for F32 {
     fn encode(&self, e: &mut Vec<u8>) {
         e.extend_from_slice(&self.bits.to_le_bytes());
     }
 }
 
-impl Encode for Float64 {
+impl Encode for F64 {
     fn encode(&self, e: &mut Vec<u8>) {
         e.extend_from_slice(&self.bits.to_le_bytes());
     }
@@ -994,8 +984,7 @@ fn find_names<'a>(
                         | Instruction::Block(block)
                         | Instruction::Loop(block)
                         | Instruction::Try(block)
-                        | Instruction::TryTable(TryTable { block, .. })
-                        | Instruction::Let(LetType { block, .. }) => {
+                        | Instruction::TryTable(TryTable { block, .. }) => {
                             if let Some(name) = get_name(&block.label, &block.label_name) {
                                 label_names.push((label_idx, name));
                             }

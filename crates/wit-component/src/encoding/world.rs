@@ -76,7 +76,8 @@ impl<'a> ComponentWorld<'a> {
             &encoder.metadata,
             &encoder.main_module_exports,
             &adapters,
-        )?;
+        )
+        .context("module was not valid")?;
 
         let mut ret = ComponentWorld {
             encoder,
@@ -87,7 +88,7 @@ impl<'a> ComponentWorld<'a> {
             exports_used: HashMap::new(),
         };
 
-        ret.process_adapters()?;
+        ret.process_adapters(&adapters)?;
         ret.process_imports()?;
         ret.process_exports_used();
         ret.process_live_type_imports();
@@ -99,7 +100,7 @@ impl<'a> ComponentWorld<'a> {
     /// adapters and figure out what functions are required from the
     /// adapter itself, either because the functions are imported by the
     /// main module or they're part of the adapter's exports.
-    fn process_adapters(&mut self) -> Result<()> {
+    fn process_adapters(&mut self, adapters: &IndexSet<&str>) -> Result<()> {
         let resolve = &self.encoder.metadata.resolve;
         let world = self.encoder.metadata.world;
         for (
@@ -157,6 +158,7 @@ impl<'a> ComponentWorld<'a> {
                 required_by_import,
                 required_exports,
                 library_info.is_some(),
+                adapters,
             )
             .context("failed to validate the imports of the minimized adapter module")?;
             self.adapters.insert(
@@ -224,6 +226,9 @@ impl<'a> ComponentWorld<'a> {
                 WasmType::I64 => ValType::I64,
                 WasmType::F32 => ValType::F32,
                 WasmType::F64 => ValType::F64,
+                WasmType::Pointer => ValType::I32,
+                WasmType::PointerOrI64 => ValType::I64,
+                WasmType::Length => ValType::I32,
             }
         }
     }

@@ -124,6 +124,7 @@ struct State {
     name: Option<Naming>,
     core: CoreState,
     component: ComponentState,
+    custom_section_place: Option<&'static str>,
 }
 
 impl State {
@@ -133,6 +134,7 @@ impl State {
             name: None,
             core: CoreState::default(),
             component: ComponentState::default(),
+            custom_section_place: None,
         }
     }
 }
@@ -351,6 +353,7 @@ impl Printer {
                     match encoding {
                         Encoding::Module => {
                             states.push(State::new(Encoding::Module));
+                            states.last_mut().unwrap().custom_section_place = Some("before first");
                             if states.len() > 1 {
                                 self.start_group("core module");
                             } else {
@@ -414,7 +417,8 @@ impl Printer {
                         continue;
                     }
                     let cur = self.result.len();
-                    let err = match self.print_custom_section(c.clone()) {
+                    let state = states.last().unwrap();
+                    let err = match self.print_custom_section(state, c.clone()) {
                         Ok(()) => continue,
                         Err(e) => e,
                     };
@@ -429,13 +433,19 @@ impl Printer {
                         self.result.push_str(line);
                     }
                     self.newline(c.range().end);
+                    self.print_raw_custom_section(state, c)?;
                 }
-                Payload::TypeSection(s) => self.print_types(states.last_mut().unwrap(), s)?,
+                Payload::TypeSection(s) => {
+                    self.update_custom_section_place(&mut states, "after type");
+                    self.print_types(states.last_mut().unwrap(), s)?;
+                }
                 Payload::ImportSection(s) => {
+                    self.update_custom_section_place(&mut states, "after import");
                     Self::ensure_module(&states)?;
                     self.print_imports(states.last_mut().unwrap(), s)?
                 }
                 Payload::FunctionSection(reader) => {
+                    self.update_custom_section_place(&mut states, "after func");
                     Self::ensure_module(&states)?;
                     if mem::replace(&mut code_printed, true) {
                         bail!("function section appeared twice in module");
@@ -446,26 +456,32 @@ impl Printer {
                     self.print_code(states.last_mut().unwrap(), &code, reader)?;
                 }
                 Payload::TableSection(s) => {
+                    self.update_custom_section_place(&mut states, "after table");
                     Self::ensure_module(&states)?;
                     self.print_tables(states.last_mut().unwrap(), s)?
                 }
                 Payload::MemorySection(s) => {
+                    self.update_custom_section_place(&mut states, "after memory");
                     Self::ensure_module(&states)?;
                     self.print_memories(states.last_mut().unwrap(), s)?
                 }
                 Payload::TagSection(s) => {
+                    self.update_custom_section_place(&mut states, "after tag");
                     Self::ensure_module(&states)?;
                     self.print_tags(states.last_mut().unwrap(), s)?
                 }
                 Payload::GlobalSection(s) => {
+                    self.update_custom_section_place(&mut states, "after global");
                     Self::ensure_module(&states)?;
                     self.print_globals(states.last_mut().unwrap(), s)?
                 }
                 Payload::ExportSection(s) => {
+                    self.update_custom_section_place(&mut states, "after export");
                     Self::ensure_module(&states)?;
                     self.print_exports(states.last().unwrap(), s)?
                 }
                 Payload::StartSection { func, range } => {
+                    self.update_custom_section_place(&mut states, "after start");
                     Self::ensure_module(&states)?;
                     self.newline(range.start);
                     self.start_group("start ");
@@ -473,12 +489,14 @@ impl Printer {
                     self.end_group();
                 }
                 Payload::ElementSection(s) => {
+                    self.update_custom_section_place(&mut states, "after element");
                     Self::ensure_module(&states)?;
                     self.print_elems(states.last_mut().unwrap(), s)?;
                 }
                 // printed with the `Function` section, so we
                 // skip this section
                 Payload::CodeSectionStart { size, .. } => {
+                    self.update_custom_section_place(&mut states, "after code");
                     Self::ensure_module(&states)?;
                     bytes = &bytes[size as usize..];
                     parser.skip_section();
@@ -489,6 +507,7 @@ impl Printer {
                     // not part of the text format
                 }
                 Payload::DataSection(s) => {
+                    self.update_custom_section_place(&mut states, "after data");
                     Self::ensure_module(&states)?;
                     self.print_data(states.last_mut().unwrap(), s)?;
                 }
@@ -547,7 +566,7 @@ impl Printer {
                     self.print_component_exports(states.last_mut().unwrap(), s)?;
                 }
 
-                Payload::End(_) => {
+                Payload::End(offset) => {
                     self.end_group(); // close the `module` or `component` group
 
                     let state = states.pop().unwrap();
@@ -562,6 +581,10 @@ impl Printer {
                         }
                         parser = parsers.pop().unwrap();
                     } else {
+                        self.newline(offset);
+                        if self.print_offsets {
+                            self.result.push('\n');
+                        }
                         break;
                     }
                 }
@@ -571,6 +594,14 @@ impl Printer {
         }
 
         Ok(())
+    }
+
+    fn update_custom_section_place(&self, states: &mut Vec<State>, place: &'static str) {
+        if let Some(last) = states.last_mut() {
+            if let Some(prev) = &mut last.custom_section_place {
+                *prev = place;
+            }
+        }
     }
 
     fn start_group(&mut self, name: &str) {
@@ -772,13 +803,13 @@ impl Printer {
             }
             CompositeType::Array(ty) => {
                 self.start_group("array");
-                let r = self.print_array_type(ty)?;
+                let r = self.print_array_type(state, ty)?;
                 self.end_group(); // `array`
                 r
             }
             CompositeType::Struct(ty) => {
                 self.start_group("struct");
-                let r = self.print_struct_type(ty)?;
+                let r = self.print_struct_type(state, ty)?;
                 self.end_group(); // `struct`
                 r
             }
@@ -851,7 +882,7 @@ impl Printer {
         // a new one if that's the case with a named parameter.
         for (i, param) in ty.params().iter().enumerate() {
             params.start_local(names_for.unwrap_or(u32::MAX), i as u32, self, state);
-            self.print_valtype(*param)?;
+            self.print_valtype(state, *param)?;
             params.end_local(&mut self.result);
         }
         params.finish(&mut self.result);
@@ -859,33 +890,33 @@ impl Printer {
             self.result.push_str(" (result");
             for result in ty.results().iter() {
                 self.result.push(' ');
-                self.print_valtype(*result)?;
+                self.print_valtype(state, *result)?;
             }
             self.result.push(')');
         }
         Ok(ty.params().len() as u32)
     }
 
-    fn print_field_type(&mut self, ty: &FieldType) -> Result<u32> {
+    fn print_field_type(&mut self, state: &State, ty: &FieldType) -> Result<u32> {
         self.result.push(' ');
         if ty.mutable {
             self.result.push_str("(mut ");
         }
-        self.print_storage_type(ty.element_type)?;
+        self.print_storage_type(state, ty.element_type)?;
         if ty.mutable {
             self.result.push_str(")");
         }
         Ok(0)
     }
 
-    fn print_array_type(&mut self, ty: &ArrayType) -> Result<u32> {
-        self.print_field_type(&ty.0)
+    fn print_array_type(&mut self, state: &State, ty: &ArrayType) -> Result<u32> {
+        self.print_field_type(state, &ty.0)
     }
 
-    fn print_struct_type(&mut self, ty: &StructType) -> Result<u32> {
+    fn print_struct_type(&mut self, state: &State, ty: &StructType) -> Result<u32> {
         for field in ty.fields.iter() {
             self.result.push_str(" (field");
-            self.print_field_type(field)?;
+            self.print_field_type(state, field)?;
             self.result.push(')');
         }
         Ok(0)
@@ -903,28 +934,28 @@ impl Printer {
         Ok(0)
     }
 
-    fn print_storage_type(&mut self, ty: StorageType) -> Result<()> {
+    fn print_storage_type(&mut self, state: &State, ty: StorageType) -> Result<()> {
         match ty {
             StorageType::I8 => self.result.push_str("i8"),
             StorageType::I16 => self.result.push_str("i16"),
-            StorageType::Val(val_type) => self.print_valtype(val_type)?,
+            StorageType::Val(val_type) => self.print_valtype(state, val_type)?,
         }
         Ok(())
     }
 
-    fn print_valtype(&mut self, ty: ValType) -> Result<()> {
+    fn print_valtype(&mut self, state: &State, ty: ValType) -> Result<()> {
         match ty {
             ValType::I32 => self.result.push_str("i32"),
             ValType::I64 => self.result.push_str("i64"),
             ValType::F32 => self.result.push_str("f32"),
             ValType::F64 => self.result.push_str("f64"),
             ValType::V128 => self.result.push_str("v128"),
-            ValType::Ref(rt) => self.print_reftype(rt)?,
+            ValType::Ref(rt) => self.print_reftype(state, rt)?,
         }
         Ok(())
     }
 
-    fn print_reftype(&mut self, ty: RefType) -> Result<()> {
+    fn print_reftype(&mut self, state: &State, ty: RefType) -> Result<()> {
         if ty.is_nullable() {
             match ty.as_non_null() {
                 RefType::FUNC => self.result.push_str("funcref"),
@@ -940,19 +971,19 @@ impl Printer {
                 RefType::EXN => self.result.push_str("exnref"),
                 _ => {
                     self.result.push_str("(ref null ");
-                    self.print_heaptype(ty.heap_type())?;
+                    self.print_heaptype(state, ty.heap_type())?;
                     self.result.push_str(")");
                 }
             }
         } else {
             self.result.push_str("(ref ");
-            self.print_heaptype(ty.heap_type())?;
+            self.print_heaptype(state, ty.heap_type())?;
             self.result.push_str(")");
         }
         Ok(())
     }
 
-    fn print_heaptype(&mut self, ty: HeapType) -> Result<()> {
+    fn print_heaptype(&mut self, state: &State, ty: HeapType) -> Result<()> {
         match ty {
             HeapType::Func => self.result.push_str("func"),
             HeapType::Extern => self.result.push_str("extern"),
@@ -965,9 +996,9 @@ impl Printer {
             HeapType::Array => self.result.push_str("array"),
             HeapType::I31 => self.result.push_str("i31"),
             HeapType::Exn => self.result.push_str("exn"),
-            HeapType::Concrete(i) => self
-                .result
-                .push_str(&format!("{}", i.as_module_index().unwrap())),
+            HeapType::Concrete(i) => {
+                self.print_idx(&state.core.type_names, i.as_module_index().unwrap())?;
+            }
         }
         Ok(())
     }
@@ -1026,7 +1057,7 @@ impl Printer {
         }
         self.print_limits(ty.initial, ty.maximum)?;
         self.result.push(' ');
-        self.print_reftype(ty.element_type)?;
+        self.print_reftype(state, ty.element_type)?;
         Ok(())
     }
 
@@ -1073,12 +1104,18 @@ impl Printer {
             self.print_name(&state.core.global_names, state.core.globals)?;
             self.result.push(' ');
         }
-        if ty.mutable {
-            self.result.push_str("(mut ");
-            self.print_valtype(ty.content_type)?;
+        if ty.shared || ty.mutable {
+            self.result.push('(');
+            if ty.shared {
+                self.result.push_str("shared ");
+            }
+            if ty.mutable {
+                self.result.push_str("mut ");
+            }
+            self.print_valtype(state, ty.content_type)?;
             self.result.push(')');
         } else {
-            self.print_valtype(ty.content_type)?;
+            self.print_valtype(state, ty.content_type)?;
         }
         Ok(())
     }
@@ -1210,7 +1247,7 @@ impl Printer {
                     first = false;
                 }
                 locals.start_local(func_idx, params + local_idx, self, state);
-                self.print_valtype(ty)?;
+                self.print_valtype(state, ty)?;
                 locals.end_local(&mut self.result);
                 local_idx += 1;
             }
@@ -1471,7 +1508,7 @@ impl Printer {
                         }
                     }
                     ElementItems::Expressions(ty, reader) => {
-                        self.print_reftype(ty)?;
+                        self.print_reftype(state, ty)?;
                         for expr in reader {
                             self.result.push(' ');
                             self.print_const_expr_sugar(state, &expr?, "item")?
@@ -1600,8 +1637,8 @@ impl Printer {
             PrimitiveValType::U32 => self.result.push_str("u32"),
             PrimitiveValType::S64 => self.result.push_str("s64"),
             PrimitiveValType::U64 => self.result.push_str("u64"),
-            PrimitiveValType::Float32 => self.result.push_str("float32"),
-            PrimitiveValType::Float64 => self.result.push_str("float64"),
+            PrimitiveValType::F32 => self.result.push_str("f32"),
+            PrimitiveValType::F64 => self.result.push_str("f64"),
             PrimitiveValType::Char => self.result.push_str("char"),
             PrimitiveValType::String => self.result.push_str("string"),
         }
@@ -1945,7 +1982,7 @@ impl Printer {
                 self.result.push_str(" ");
                 self.start_group("resource");
                 self.result.push_str(" (rep ");
-                self.print_valtype(rep)?;
+                self.print_valtype(states.last().unwrap(), rep)?;
                 self.result.push_str(")");
                 if let Some(dtor) = dtor {
                     self.result.push_str(" (dtor (func ");
@@ -2657,8 +2694,15 @@ impl Printer {
         self.result.push(to_hex(byte & 0xf));
     }
 
-    fn print_custom_section(&mut self, section: CustomSectionReader<'_>) -> Result<()> {
+    fn print_custom_section(
+        &mut self,
+        state: &State,
+        section: CustomSectionReader<'_>,
+    ) -> Result<()> {
         match section.name() {
+            // For now `wasmprinter` has invented syntax for `producers` and
+            // `dylink.0` below to use in tests. Note that this syntax is not
+            // official at this time.
             "producers" => {
                 self.newline(section.range().start);
                 self.print_producers_section(ProducersSectionReader::new(
@@ -2673,8 +2717,33 @@ impl Printer {
                     section.data_offset(),
                 ))
             }
-            _ => Ok(()),
+
+            // These are parsed during `read_names_and_code` and are part of
+            // printing elsewhere, so don't print them.
+            "name" | "component-name" | "metadata.code.branch_hint" => Ok(()),
+
+            // Unknown custom sections get a `@custom` annotation printed.
+            _ => self.print_raw_custom_section(state, section),
         }
+    }
+
+    fn print_raw_custom_section(
+        &mut self,
+        state: &State,
+        section: CustomSectionReader<'_>,
+    ) -> Result<()> {
+        self.newline(section.range().start);
+        self.start_group("@custom ");
+        self.print_str(section.name())?;
+        if let Some(place) = state.custom_section_place {
+            self.result.push_str(" (");
+            self.result.push_str(place);
+            self.result.push_str(")");
+        }
+        self.result.push_str(" ");
+        self.print_bytes(section.data())?;
+        self.end_group();
+        Ok(())
     }
 
     fn print_producers_section(&mut self, section: ProducersSectionReader<'_>) -> Result<()> {

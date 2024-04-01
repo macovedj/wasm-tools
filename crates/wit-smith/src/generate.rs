@@ -318,16 +318,14 @@ impl Generator {
 
 impl<'a> InterfaceGenerator<'a> {
     fn new(gen: &'a Generator, file: &'a mut File) -> InterfaceGenerator<'a> {
-        // Claim the name `memory` to avoid conflicting with the canonical ABI
-        // always using a linear memory named `memory`.
-        let mut unique_names = HashSet::new();
-        unique_names.insert("memory".to_string());
         InterfaceGenerator {
             gen,
             file,
             config: &gen.config,
             types_in_interface: Vec::new(),
-            unique_names,
+            // Claim the name `memory` to avoid conflicting with the canonical
+            // ABI always using a linear memory named `memory`.
+            unique_names: HashSet::from_iter(["memory".to_string()]),
         }
     }
 
@@ -413,7 +411,10 @@ impl<'a> InterfaceGenerator<'a> {
         let mut parts = Vec::new();
         let mut imported_interfaces = HashSet::new();
         let mut exported_interfaces = HashSet::new();
-        let mut export_names = HashSet::new();
+
+        // Claim the name `memory` to avoid conflicting with the canonical
+        // ABI always using a linear memory named `memory`.
+        let mut export_names = HashSet::from_iter(["memory".to_string()]);
 
         while parts.len() < self.config.max_world_items && !u.is_empty() && u.arbitrary()? {
             let kind = u.arbitrary::<ItemKind>()?;
@@ -706,8 +707,8 @@ impl<'a> InterfaceGenerator<'a> {
             S16,
             S32,
             S64,
-            Float32,
-            Float64,
+            F32,
+            F64,
             Char,
             String,
             Id,
@@ -735,8 +736,8 @@ impl<'a> InterfaceGenerator<'a> {
                 Kind::S32 => dst.push_str("s32"),
                 Kind::U64 => dst.push_str("u64"),
                 Kind::S64 => dst.push_str("s64"),
-                Kind::Float32 => dst.push_str("float32"),
-                Kind::Float64 => dst.push_str("float64"),
+                Kind::F32 => dst.push_str("f32"),
+                Kind::F64 => dst.push_str("f64"),
                 Kind::Char => dst.push_str("char"),
                 Kind::String => dst.push_str("string"),
                 Kind::Id => {

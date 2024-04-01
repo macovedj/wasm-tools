@@ -48,7 +48,7 @@ pub fn run<T>(
         }
     }
     for name in not_required {
-        module.exports.remove(name);
+        module.exports.swap_remove(name);
     }
     assert!(!module.exports.is_empty());
     module.liveness()?;
@@ -615,8 +615,9 @@ impl<'a> Module<'a> {
         for (i, global) in self.live_globals() {
             map.globals.push(i);
             let ty = wasm_encoder::GlobalType {
-                mutable: global.ty.mutable,
                 val_type: map.valty(global.ty.content_type),
+                mutable: global.ty.mutable,
+                shared: global.ty.shared,
             };
             match &global.def {
                 Definition::Import(m, n) => {

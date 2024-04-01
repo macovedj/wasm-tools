@@ -184,7 +184,6 @@ impl<'a> ExpressionParser<'a> {
                         // seen
                         i @ Instruction::Block(_)
                         | i @ Instruction::Loop(_)
-                        | i @ Instruction::Let(_)
                         | i @ Instruction::TryTable(_) => {
                             self.instrs.push(i);
                             self.stack.push(Level::EndWith(Instruction::End(None)));
@@ -468,8 +467,6 @@ instructions! {
         // function-references proposal
         CallRef(Index<'a>) : [0x14] : "call_ref",
         ReturnCallRef(Index<'a>) : [0x15] : "return_call_ref",
-        FuncBind(FuncBindType<'a>) : [0x16] : "func.bind",
-        Let(LetType<'a>) : [0x17] : "let",
 
         Drop : [0x1a] : "drop",
         Select(SelectTypes<'a>) : [] : "select",
@@ -574,8 +571,8 @@ instructions! {
 
         I32Const(i32) : [0x41] : "i32.const",
         I64Const(i64) : [0x42] : "i64.const",
-        F32Const(Float32) : [0x43] : "f32.const",
-        F64Const(Float64) : [0x44] : "f64.const",
+        F32Const(F32) : [0x43] : "f32.const",
+        F64Const(F64) : [0x44] : "f64.const",
 
         I32Clz : [0x67] : "i32.clz",
         I32Ctz : [0x68] : "i32.ctz",
@@ -1217,40 +1214,6 @@ pub struct TryTableCatch<'a> {
     pub label: Index<'a>,
 }
 
-/// Extra information associated with the func.bind instruction.
-#[derive(Debug)]
-#[allow(missing_docs)]
-pub struct FuncBindType<'a> {
-    pub ty: TypeUse<'a, FunctionType<'a>>,
-}
-
-impl<'a> Parse<'a> for FuncBindType<'a> {
-    fn parse(parser: Parser<'a>) -> Result<Self> {
-        Ok(FuncBindType {
-            ty: parser
-                .parse::<TypeUse<'a, FunctionTypeNoNames<'a>>>()?
-                .into(),
-        })
-    }
-}
-
-/// Extra information associated with the let instruction.
-#[derive(Debug)]
-#[allow(missing_docs)]
-pub struct LetType<'a> {
-    pub block: Box<BlockType<'a>>,
-    pub locals: Box<[Local<'a>]>,
-}
-
-impl<'a> Parse<'a> for LetType<'a> {
-    fn parse(parser: Parser<'a>) -> Result<Self> {
-        Ok(LetType {
-            block: parser.parse()?,
-            locals: Local::parse_remainder(parser)?.into(),
-        })
-    }
-}
-
 /// Extra information associated with the `br_table` instruction.
 #[allow(missing_docs)]
 #[derive(Debug)]
@@ -1768,15 +1731,15 @@ impl<'a> Parse<'a> for BrOnCastFail<'a> {
 }
 
 /// Different ways to specify a `v128.const` instruction
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[allow(missing_docs)]
 pub enum V128Const {
     I8x16([i8; 16]),
     I16x8([i16; 8]),
     I32x4([i32; 4]),
     I64x2([i64; 2]),
-    F32x4([Float32; 4]),
-    F64x2([Float64; 2]),
+    F32x4([F32; 4]),
+    F64x2([F64; 2]),
 }
 
 impl V128Const {

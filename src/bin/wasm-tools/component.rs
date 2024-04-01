@@ -102,7 +102,7 @@ pub struct NewOpts {
     /// ABI, for example, to one that uses the component model. The first
     /// `[NAME=]` specified in the argument is inferred from the name of file
     /// specified by `MODULE` if not present and is the name of the import
-    /// module that's being implemented (e.g. `wasi_snapshot_preview1.wasm`.
+    /// module that's being implemented (e.g. `wasi_snapshot_preview1.wasm`).
     ///
     /// The second part of this argument, optionally specified, is the interface
     /// that this adapter module imports. If not specified then the interface
@@ -318,7 +318,7 @@ pub struct LinkOpts {
     /// ABI, for example, to one that uses the component model. The first
     /// `[NAME=]` specified in the argument is inferred from the name of file
     /// specified by `MODULE` if not present and is the name of the import
-    /// module that's being implemented (e.g. `wasi_snapshot_preview1.wasm`.
+    /// module that's being implemented (e.g. `wasi_snapshot_preview1.wasm`).
     ///
     /// The second part of this argument, optionally specified, is the interface
     /// that this adapter module imports. If not specified then the interface
@@ -347,6 +347,10 @@ pub struct LinkOpts {
     /// Generate trapping stubs for any missing functions
     #[clap(long)]
     stub_missing_functions: bool,
+
+    /// Use built-in implementations of `dlopen`/`dlsym`
+    #[clap(long)]
+    use_built_in_libdl: bool,
 }
 
 impl LinkOpts {
@@ -358,7 +362,8 @@ impl LinkOpts {
     fn run(self) -> Result<()> {
         let mut linker = Linker::default()
             .validate(!self.skip_validation)
-            .stub_missing_functions(self.stub_missing_functions);
+            .stub_missing_functions(self.stub_missing_functions)
+            .use_built_in_libdl(self.use_built_in_libdl);
 
         if let Some(stack_size) = self.stack_size {
             linker = linker.stack_size(stack_size);

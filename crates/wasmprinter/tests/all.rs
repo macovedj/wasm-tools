@@ -202,7 +202,7 @@ fn label_shadowing_block_confusion() {
         (func (;0;) (type 0)
           block $a
             block $a
-              br 1 (;@1;)
+              br 1
             end
           end
         )
@@ -259,7 +259,8 @@ fn offsets_and_lines_smoke_test() {
         (Some(0x20), "    local.get 0\n"),
         (None,       "  )\n"),
         (Some(0x17), "  (export \"f\" (func 0))\n"),
-        (None,       ")"),
+        (None,       ")\n"),
+        (Some(0x23), ""),
     ];
 
     assert_eq!(actual, expected);
@@ -275,4 +276,18 @@ fn no_panic_non_func_type() {
     )
     .unwrap();
     wasmprinter::print_bytes(&bytes).unwrap();
+}
+
+#[test]
+fn shared_global() {
+    const MODULE: &str = r#"
+    (module
+        (global (;0;) (shared f32))
+    )"#;
+    let bytes = wat::parse_str(MODULE).unwrap();
+    let result = wasmprinter::print_bytes(&bytes).unwrap();
+    assert_eq!(
+        result.replace(" ", "").trim(),
+        MODULE.replace(" ", "").trim()
+    );
 }

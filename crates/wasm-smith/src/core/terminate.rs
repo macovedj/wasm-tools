@@ -1,7 +1,5 @@
 use super::*;
 use anyhow::{bail, Result};
-use std::mem;
-use wasm_encoder::BlockType;
 
 impl Module {
     /// Ensure that all of this Wasm module's functions will terminate when
@@ -25,11 +23,10 @@ impl Module {
         self.globals.push(GlobalType {
             val_type: ValType::I32,
             mutable: true,
+            shared: false,
         });
-        self.defined_globals.push((
-            fuel_global,
-            GlobalInitExpr::ConstExpr(ConstExpr::i32_const(default_fuel as i32)),
-        ));
+        self.defined_globals
+            .push((fuel_global, ConstExpr::i32_const(default_fuel as i32)));
 
         for code in &mut self.code {
             let check_fuel = |insts: &mut Vec<Instruction>| {
