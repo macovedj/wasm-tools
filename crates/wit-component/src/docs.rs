@@ -1,6 +1,7 @@
 use crate::DecodedWasm;
 
 use anyhow::anyhow;
+use id_arena::Id;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, mem};
 use wit_parser::{
@@ -8,7 +9,7 @@ use wit_parser::{
     Results, Tuple, Type, TypeDefKind, TypeId, TypeOwner, Variant, WorldId,
 };
 
-fn resource_func(f: &Function) -> Option<TypeId> {
+fn register_resource_func(f: &Function) -> Option<TypeId> {
     match f.kind {
         FunctionKind::Freestanding => None,
         FunctionKind::Method(id) | FunctionKind::Constructor(id) | FunctionKind::Static(id) => {
@@ -47,7 +48,7 @@ impl PrintingPackage {
             interfaces: Vec::new(),
             type_defs: Types {
                 use_decls: Vec::new(),
-                decomposed_types: Vec::new(),
+                doc_types: Vec::new(),
             },
             funcs: Vec::new(),
             worlds: Vec::new(),
@@ -90,8 +91,16 @@ struct Interface {
 #[derive(Deserialize, Serialize)]
 struct World {
     name: String,
-    imports: Vec<String>,
-    exports: Vec<String>,
+    imports: Vec<(Option<String>, WorldItem)>,
+    exports: Vec<(Option<String>, WorldItem)>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum WorldItem {
+    Interface,
+    Function((Vec<Param>, Vec<FuncResult>)),
+    Type(DocType),
 }
 
 const PRINT_SEMICOLONS_DEFAULT: bool = true;
@@ -113,7 +122,7 @@ impl Default for DocsPrinter {
 #[derive(Deserialize, Serialize)]
 struct Types {
     use_decls: Vec<UsedType>,
-    decomposed_types: Vec<DecomposedType>,
+    doc_types: Vec<DocType>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -131,7 +140,7 @@ struct Resource {
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 enum Declaration {
-    Simple(DecomposedType),
+    Simple(DocType),
     Resource(Resource),
 }
 #[derive(Deserialize, Serialize)]
@@ -142,13 +151,508 @@ struct DeclaredType {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct DecomposedType {
+struct DocType {
+    name: Option<String>,
+    kind: TypeDef,
+    owner: Option<String>,
+    docs: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum TypeDef {
+    Primitive(Box<DocPrimitive>),
+    Resource(ResourceDoc),
+    Handle(Box<ResourceHandle>),
+    Record(Box<Vec<DocTypeRef>>),
+    Flags(Vec<Flag>),
+    Tuple(Box<Vec<DocTypeRef>>),
+    Variant(Box<Vec<DocTypeRef>>),
+    Enum(Vec<String>),
+    Option(Box<DocTypeRef>),
+    Result(Box<ResultTypes>),
+    List(Box<DocTypeRef>),
+    Future,
+    Stream,
+    Type(Box<DocTypeRef>),
+    Unknown,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+struct Flag {
+    name: String,
+    docs: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum ResourceHandle {
+    Own(DocTypeRef),
+    Borrow(DocTypeRef),
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct DocTypeRef {
+    name: Option<String>,
+    owner: Option<String>,
+    docs: Option<String>,
+    ty: Option<TypeDef>,
+}
+
+impl DocTypeRef {
+    fn from_type(value: Type, printer: &DocsPrinter, resolve: &Resolve) -> Self {
+        match value {
+            Type::Bool => Self {
+                name: None,
+                owner: None,
+                docs: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Bool))),
+            },
+            Type::U8 => Self {
+                name: None,
+                owner: None,
+                docs: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U8))),
+            },
+            Type::U16 => Self {
+                name: None,
+                owner: None,
+                docs: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U16))),
+            },
+            Type::U32 => Self {
+                name: None,
+                owner: None,
+                docs: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U32))),
+            },
+            Type::U64 => Self {
+                name: None,
+                owner: None,
+                docs: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U64))),
+            },
+            Type::S8 => Self {
+                name: None,
+                owner: None,
+                docs: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S8))),
+            },
+            Type::S16 => Self {
+                name: None,
+                owner: None,
+                docs: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S16))),
+            },
+            Type::S32 => Self {
+                name: None,
+                owner: None,
+                docs: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S32))),
+            },
+            Type::S64 => Self {
+                name: None,
+                owner: None,
+                docs: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S64))),
+            },
+            Type::Float32 => Self {
+                name: None,
+                owner: None,
+                docs: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Float32))),
+            },
+            Type::Float64 => Self {
+                name: None,
+                owner: None,
+                docs: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Float64))),
+            },
+            Type::Char => Self {
+                name: None,
+                owner: None,
+                docs: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Char))),
+            },
+            Type::String => Self {
+                name: None,
+                owner: None,
+                docs: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::String))),
+            },
+            Type::Id(id) => {
+                let ty = &resolve.types[id];
+                match ty.kind.clone() {
+                    TypeDefKind::Record(_) => Self {
+                        name: ty.name.clone(),
+                        owner: printer.print_owner(ty.owner, resolve),
+                        docs: ty.docs.contents.clone(),
+                        ty: None,
+                    },
+                    TypeDefKind::Resource => Self {
+                        name: ty.name.clone(),
+                        owner: printer.print_owner(ty.owner, resolve),
+                        docs: ty.docs.contents.clone(),
+                        ty: None,
+                    },
+                    TypeDefKind::Handle(handle) => {
+                        let handle_ref = match handle {
+                            Handle::Own(owned_id) => {
+                                let owned_ty = &resolve.types[owned_id];
+                                ResourceHandle::Own(DocTypeRef {
+                                    name: owned_ty.name.clone(),
+                                    owner: printer.print_owner(owned_ty.owner, resolve),
+                                    docs: owned_ty.docs.contents.clone(),
+                                    ty: Some(TypeDef::from_type_def_kind(
+                                        &owned_ty.kind,
+                                        printer,
+                                        resolve,
+                                    )),
+                                })
+                            }
+                            Handle::Borrow(borrowed_id) => {
+                                let borrowed_ty = &resolve.types[borrowed_id];
+                                ResourceHandle::Borrow(DocTypeRef {
+                                    name: borrowed_ty.name.clone(),
+                                    owner: printer.print_owner(borrowed_ty.owner, resolve),
+                                    docs: borrowed_ty.docs.contents.clone(),
+                                    ty: Some(TypeDef::from_type_def_kind(
+                                        &borrowed_ty.kind,
+                                        printer,
+                                        resolve,
+                                    )),
+                                })
+                            }
+                        };
+                        Self {
+                            name: ty.name.clone(),
+                            owner: printer.print_owner(ty.owner, resolve),
+                            docs: ty.docs.contents.clone(),
+                            ty: Some(TypeDef::Handle(Box::new(handle_ref))),
+                        }
+                    }
+                    TypeDefKind::Flags(_) => todo!(),
+                    TypeDefKind::Tuple(Tuple { types }) => {
+                        let mut type_refs = Vec::new();
+                        for ty in types {
+                            let type_ref = if let Type::Id(id) = ty {
+                                let inner = &resolve.types[id];
+                                DocTypeRef {
+                                    name: inner.name.clone(),
+                                    owner: printer.print_owner(inner.owner, resolve),
+                                    docs: inner.docs.contents.clone(),
+                                    ty: None,
+                                }
+                            } else {
+                                DocTypeRef::from_type(ty, printer, resolve)
+                            };
+                            type_refs.push(type_ref);
+                        }
+                        Self {
+                            name: ty.name.clone(),
+                            owner: printer.print_owner(ty.owner, resolve),
+                            docs: ty.docs.contents.clone(),
+                            ty: None,
+                        }
+                    }
+                    TypeDefKind::Variant(_) => Self {
+                        name: ty.name.clone(),
+                        owner: printer.print_owner(ty.owner, resolve),
+                        docs: ty.docs.contents.clone(),
+                        ty: None,
+                    },
+                    TypeDefKind::Enum(_) => Self {
+                        name: ty.name.clone(),
+                        owner: printer.print_owner(ty.owner, resolve),
+                        docs: ty.docs.contents.clone(),
+                        ty: None,
+                    },
+                    TypeDefKind::Option(inner) => Self {
+                        name: ty.name.clone(),
+                        owner: printer.print_owner(ty.owner, resolve),
+                        docs: ty.docs.contents.clone(),
+                        ty: if let Some(_) = &ty.name {
+                            None
+                        } else {
+                            Some(TypeDef::Option(Box::new(DocTypeRef::from_type(
+                                inner, printer, resolve,
+                            ))))
+                        },
+                    },
+                    TypeDefKind::Result(Result_ { ok, err }) => {
+                        let ok_ref = if let Some(ok) = ok {
+                            Some(DocTypeRef::from_type(ok, printer, resolve))
+                        } else {
+                            None
+                        };
+                        let err_ref = if let Some(err) = err {
+                            Some(DocTypeRef::from_type(err, printer, resolve))
+                        } else {
+                            None
+                        };
+                        return Self {
+                            name: ty.name.clone(),
+                            owner: printer.print_owner(ty.owner, resolve),
+                            docs: ty.docs.contents.clone(),
+                            ty: Some(TypeDef::Result(Box::new(ResultTypes {
+                                ok: ok_ref,
+                                error: err_ref,
+                            }))),
+                        };
+                    }
+                    TypeDefKind::List(inner) => Self {
+                        name: ty.name.clone(),
+                        owner: printer.print_owner(ty.owner, resolve),
+                        docs: ty.docs.contents.clone(),
+                        ty: if let Some(_) = &ty.name {
+                            None
+                        } else {
+                            Some(TypeDef::List(Box::new(DocTypeRef::from_type(
+                                inner, printer, resolve,
+                            ))))
+                        },
+                    },
+                    TypeDefKind::Future(_) => unreachable!(),
+                    TypeDefKind::Stream(_) => unreachable!(),
+                    TypeDefKind::Type(_) => Self {
+                        name: ty.name.clone(),
+                        owner: printer.print_owner(ty.owner, resolve),
+                        docs: ty.docs.contents.clone(),
+                        ty: None,
+                    },
+                    TypeDefKind::Unknown => unreachable!(),
+                }
+            }
+        }
+    }
+}
+
+impl TypeDef {
+    fn from_type(value: &Type, printer: Option<&DocsPrinter>, resolve: Option<&Resolve>) -> Self {
+        match value {
+            Type::Bool => TypeDef::Primitive(Box::new(DocPrimitive::Bool)),
+            Type::U8 => TypeDef::Primitive(Box::new(DocPrimitive::U8)),
+            Type::U16 => TypeDef::Primitive(Box::new(DocPrimitive::U16)),
+            Type::U32 => TypeDef::Primitive(Box::new(DocPrimitive::U32)),
+            Type::U64 => TypeDef::Primitive(Box::new(DocPrimitive::U64)),
+            Type::S8 => TypeDef::Primitive(Box::new(DocPrimitive::S8)),
+            Type::S16 => TypeDef::Primitive(Box::new(DocPrimitive::S16)),
+            Type::S32 => TypeDef::Primitive(Box::new(DocPrimitive::S32)),
+            Type::S64 => TypeDef::Primitive(Box::new(DocPrimitive::S64)),
+            Type::Float32 => TypeDef::Primitive(Box::new(DocPrimitive::Float32)),
+            Type::Float64 => TypeDef::Primitive(Box::new(DocPrimitive::Float64)),
+            Type::Char => TypeDef::Primitive(Box::new(DocPrimitive::Char)),
+            Type::String => TypeDef::Primitive(Box::new(DocPrimitive::String)),
+            Type::Id(id) => {
+                if let Some(resolve) = resolve {
+                    let ty = &resolve.types[*id];
+                    if let Some(printer) = printer {
+                        let owner = printer.print_owner(ty.owner, resolve);
+                        TypeDef::Type(Box::new(DocTypeRef {
+                            name: ty.name.clone(),
+                            owner,
+                            docs: ty.docs.contents.clone(),
+                            ty: Some(TypeDef::from_type_def_kind(&ty.kind, printer, resolve)),
+                        }))
+                    } else {
+                        TypeDef::Unknown
+                    }
+                } else {
+                    TypeDef::Unknown
+                }
+            }
+        }
+    }
+
+    fn from_type_def_kind(value: &TypeDefKind, printer: &DocsPrinter, resolve: &Resolve) -> Self {
+        match value {
+            TypeDefKind::Record(Record { fields }) => {
+                let mut field_types = Vec::new();
+                for field in fields {
+                    let doc_field = DocTypeRef {
+                        name: Some(field.name.clone()),
+                        owner: None,
+                        docs: field.docs.contents.clone(),
+                        ty: Some(TypeDef::from_type(&field.ty, Some(printer), Some(resolve))),
+                    };
+                    field_types.push(doc_field);
+                }
+                TypeDef::Record(Box::new(field_types))
+            }
+            TypeDefKind::Resource => TypeDef::Resource(ResourceDoc {
+                owner: None,
+                name: None,
+                docs: None,
+                methods: vec![],
+            }),
+            TypeDefKind::Handle(handle) => {
+                let handle_ref = match handle {
+                    Handle::Own(owned_id) => {
+                        let owned_ty = &resolve.types[*owned_id];
+                        ResourceHandle::Own(DocTypeRef {
+                            name: owned_ty.name.clone(),
+                            owner: printer.print_owner(owned_ty.owner, resolve),
+                            docs: owned_ty.docs.contents.clone(),
+                            ty: Some(TypeDef::from_type_def_kind(
+                                &owned_ty.kind,
+                                printer,
+                                resolve,
+                            )),
+                        })
+                    }
+                    Handle::Borrow(borrowed_id) => {
+                        let borrowed_ty = &resolve.types[*borrowed_id];
+                        ResourceHandle::Borrow(DocTypeRef {
+                            name: borrowed_ty.name.clone(),
+                            owner: printer.print_owner(borrowed_ty.owner, resolve),
+                            docs: borrowed_ty.docs.contents.clone(),
+                            ty: Some(TypeDef::from_type_def_kind(
+                                &borrowed_ty.kind,
+                                printer,
+                                resolve,
+                            )),
+                        })
+                    }
+                };
+                TypeDef::Handle(Box::new(handle_ref))
+            }
+            TypeDefKind::Flags(Flags { flags }) => TypeDef::Flags(
+                flags
+                    .iter()
+                    .map(|f| Flag {
+                        name: f.name.clone(),
+                        docs: f.docs.contents.clone(),
+                    })
+                    .collect(),
+            ),
+            TypeDefKind::Tuple(Tuple { types }) => {
+                let mut type_refs = Vec::new();
+                for ty in types {
+                    type_refs.push(DocTypeRef::from_type(*ty, printer, resolve))
+                }
+                TypeDef::Tuple(Box::new(type_refs))
+            }
+            TypeDefKind::Variant(Variant { cases }) => {
+                let mut doc_cases = Vec::new();
+                for case in cases {
+                    if let Some(case_ty) = case.ty {
+                        if let Type::Id(id) = case_ty {
+                            let inner = &resolve.types[id];
+                            let doc_case = DocTypeRef {
+                                name: Some(case.name.clone()),
+                                owner: printer.print_owner(inner.owner, resolve),
+                                docs: case.docs.contents.clone(),
+                                ty: Some(TypeDef::Type(Box::new(DocTypeRef::from_type(
+                                    case_ty, printer, resolve,
+                                )))),
+                            };
+                            doc_cases.push(doc_case);
+                        } else {
+                            let doc_case = DocTypeRef {
+                                name: Some(case.name.clone()),
+                                owner: None,
+                                docs: case.docs.contents.clone(),
+                                ty: Some(TypeDef::Type(Box::new(DocTypeRef::from_type(
+                                    case_ty, printer, resolve,
+                                )))),
+                            };
+                            doc_cases.push(doc_case);
+                        }
+                    } else {
+                        let doc_case = DocTypeRef {
+                            name: Some(case.name.clone()),
+                            docs: case.docs.contents.clone(),
+                            owner: None,
+                            ty: None,
+                        };
+                        doc_cases.push(doc_case);
+                    }
+                }
+                TypeDef::Variant(Box::new(doc_cases))
+            }
+            TypeDefKind::Enum(Enum { cases }) => {
+                TypeDef::Enum(cases.into_iter().map(|case| case.name.clone()).collect())
+            }
+            TypeDefKind::Option(inner) => TypeDef::Option(Box::new(
+                printer.print_type_def_ref(inner, resolve, printer),
+            )),
+            TypeDefKind::Result(Result_ { ok, err }) => TypeDef::Result(Box::new(ResultTypes {
+                ok: if let Some(ok_ty) = &ok {
+                    Some(printer.print_type_def_ref(ok_ty, resolve, printer))
+                } else {
+                    None
+                },
+                error: if let Some(err_ty) = &err {
+                    Some(printer.print_type_def_ref(err_ty, resolve, printer))
+                } else {
+                    None
+                },
+            })),
+            TypeDefKind::List(inner) => TypeDef::List(Box::new(
+                printer.print_type_def_ref(&inner, resolve, &printer),
+            )),
+            TypeDefKind::Future(_) => TypeDef::Future,
+            TypeDefKind::Stream(_) => TypeDef::Stream,
+            TypeDefKind::Type(inner) => TypeDef::Type(Box::new(
+                printer.print_type_def_ref(&inner, resolve, &printer),
+            )),
+            TypeDefKind::Unknown => TypeDef::Unknown,
+        }
+    }
+}
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct ResultTypes {
+    ok: Option<DocTypeRef>,
+    error: Option<DocTypeRef>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct ResourceDoc {
     owner: Option<String>,
     name: Option<String>,
     docs: Option<String>,
-    val: String,
-    children: Option<Vec<DecomposedType>>,
-    methods: Option<Vec<Func>>,
+    methods: Vec<Func>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct Func {
+    name: String,
+    is_static: bool,
+    docs: String,
+    params: Vec<Param>,
+    results: Vec<FuncResult>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct Param {
+    name: String,
+    ty: DocTypeRef,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct FuncResult {
+    name: String,
+    ty: DocTypeRef,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum DocPrimitive {
+    Bool,
+    U8,
+    U16,
+    U32,
+    U64,
+    S8,
+    S16,
+    S32,
+    S64,
+    Float32,
+    Float64,
+    Char,
+    String,
+    Id(Box<TypeDef>),
 }
 
 impl DocsPrinter {
@@ -204,12 +708,7 @@ impl DocsPrinter {
         }
     }
 
-    fn print_decomposed_resource(
-        &mut self,
-        resolve: &Resolve,
-        id: TypeId,
-        funcs: &[&Function],
-    ) -> DecomposedType {
+    fn print_resource(&mut self, resolve: &Resolve, id: TypeId, funcs: &[&Function]) -> DocType {
         let ty = &resolve.types[id];
         let owner = self.print_owner(ty.owner, resolve);
         let mut methods = Vec::new();
@@ -220,46 +719,249 @@ impl DocsPrinter {
                 "".to_string()
             };
             match func.kind {
-                FunctionKind::Freestanding => todo!(),
+                FunctionKind::Freestanding => unreachable!(),
                 FunctionKind::Method(_) => {
-                    let (params, result) = self.print_function(resolve, func);
+                    let (params, results) = self.print_function(resolve, func);
                     methods.push(Func {
                         name: func.name.clone(),
                         is_static: false,
-                        docs,
+                        docs: docs.clone(),
                         params,
-                        result,
-                    })
+                        results,
+                    });
                 }
                 FunctionKind::Static(_) => {
-                    let (params, result) = self.print_function(resolve, func);
+                    let (params, results) = self.print_function(resolve, func);
                     methods.push(Func {
                         name: func.name.clone(),
                         is_static: true,
-                        docs,
+                        docs: docs.clone(),
                         params,
-                        result,
-                    })
+                        results,
+                    });
                 }
                 FunctionKind::Constructor(_) => {
-                    let (params, result) = self.print_function(resolve, func);
+                    let (params, results) = self.print_function(resolve, func);
                     methods.push(Func {
-                        name: "constructor".to_string(),
+                        name: func.name.clone(),
                         is_static: false,
-                        docs,
+                        docs: docs.clone(),
                         params,
-                        result,
-                    })
+                        results,
+                    });
                 }
             }
         }
-        DecomposedType {
+        DocType {
+            kind: TypeDef::Resource(ResourceDoc {
+                owner: owner.clone(),
+                name: ty.name.clone(),
+                docs: ty.docs.contents.clone(),
+                methods,
+            }),
             owner,
             name: ty.name.clone(),
             docs: ty.docs.contents.clone(),
-            val: "resource".to_string(),
-            children: None,
-            methods: Some(methods),
+        }
+    }
+
+    fn render_type(
+        &mut self,
+        resolve: &Resolve,
+        id: &Id<wit_parser::TypeDef>,
+        resource_funcs: &HashMap<TypeId, Vec<&Function>>,
+    ) -> DocType {
+        self.print_docs(&resolve.types[*id].docs);
+        let type_def = &resolve.types[*id];
+        match type_def.kind.clone() {
+            TypeDefKind::Record(Record { fields }) => {
+                let mut field_tys = Vec::new();
+                let mut doc_fields = Vec::new();
+                for field in fields {
+                    match field.ty {
+                        Type::Id(inner_id) => {
+                            let check =
+                                self.print_doc_type(Some(field.name.clone()), resolve, &field.ty);
+                            field_tys.push(check);
+                            let inner = &resolve.types[inner_id];
+                            let doc_field = DocTypeRef {
+                                name: Some(field.name.clone()),
+                                owner: self.print_owner(inner.owner, resolve),
+                                docs: field.docs.contents.clone(),
+                                ty: if let Some(_) = inner.name.clone() {
+                                    Some(TypeDef::Type(Box::new(DocTypeRef {
+                                        name: inner.name.clone(),
+                                        owner: self.print_owner(inner.owner, resolve),
+                                        docs: inner.docs.contents.clone(),
+                                        ty: None,
+                                    })))
+                                } else {
+                                    Some(TypeDef::from_type(&field.ty, Some(self), Some(resolve)))
+                                },
+                            };
+                            doc_fields.push(doc_field);
+                        }
+                        _ => {
+                            let doc_field = DocTypeRef {
+                                name: Some(field.name.clone()),
+                                owner: None,
+                                docs: field.docs.contents.clone(),
+                                ty: Some(TypeDef::from_type(&field.ty, Some(self), Some(resolve))),
+                            };
+                            doc_fields.push(doc_field);
+                            field_tys.push(self.print_doc_type(
+                                Some(field.name),
+                                resolve,
+                                &field.ty,
+                            ))
+                        }
+                    }
+                }
+                DocType {
+                    kind: TypeDef::Record(Box::new(doc_fields)),
+                    owner: None,
+                    name: type_def.name.clone(),
+                    docs: type_def.docs.contents.clone(),
+                }
+            }
+            TypeDefKind::Flags(Flags { flags }) => DocType {
+                kind: TypeDef::Flags(
+                    flags
+                        .iter()
+                        .map(|f| Flag {
+                            name: f.name.clone(),
+                            docs: f.docs.contents.clone(),
+                        })
+                        .collect(),
+                ),
+                owner: None,
+                name: type_def.name.clone(),
+                docs: type_def.docs.contents.clone(),
+            },
+            TypeDefKind::Tuple(Tuple { types }) => {
+                let mut tys = Vec::new();
+                for ty in types {
+                    let type_ref = DocTypeRef::from_type(ty, self, resolve);
+                    tys.push(type_ref);
+                }
+                DocType {
+                    kind: TypeDef::Tuple(Box::new(tys)),
+                    owner: None,
+                    name: type_def.name.clone(),
+                    docs: type_def.docs.contents.clone(),
+                }
+            }
+            TypeDefKind::Variant(Variant { cases }) => {
+                let mut case_types = Vec::new();
+                for case in cases {
+                    if let Some(ty) = case.ty {
+                        match ty {
+                            Type::Id(id) => {
+                                let case_ty = &resolve.types[id];
+                                let doc_case = DocTypeRef {
+                                    name: Some(case.name.clone()),
+                                    owner: self.print_owner(case_ty.owner, resolve),
+                                    docs: case.docs.contents.clone(),
+                                    ty: Some(TypeDef::Type(Box::new(DocTypeRef::from_type(
+                                        ty, self, resolve,
+                                    )))),
+                                };
+                                case_types.push(doc_case);
+                            }
+                            _ => case_types.push(DocTypeRef {
+                                owner: self.print_owner(type_def.owner, resolve),
+                                name: Some(case.name.clone()),
+                                docs: case.docs.contents.clone(),
+                                ty: Some(TypeDef::from_type(&ty, Some(self), Some(resolve))),
+                            }),
+                        }
+                    } else {
+                        let owner = self.print_owner(type_def.owner, resolve);
+                        case_types.push(DocTypeRef {
+                            name: Some(case.name.clone()),
+                            owner,
+                            docs: case.docs.contents,
+                            ty: None,
+                        });
+                    }
+                }
+                DocType {
+                    name: type_def.name.clone(),
+                    kind: TypeDef::Variant(Box::new(case_types)),
+                    owner: None,
+                    docs: type_def.docs.contents.clone(),
+                }
+            }
+            TypeDefKind::Enum(Enum { cases }) => {
+                let mut case_types = Vec::new();
+                let mut doc_cases = Vec::new();
+                for case in cases {
+                    doc_cases.push(case.name.clone());
+                    case_types.push(DocType {
+                        kind: TypeDef::Primitive(Box::new(DocPrimitive::Bool)),
+                        owner: None,
+                        name: Some(case.name.clone()),
+                        docs: case.docs.contents,
+                    });
+                }
+                DocType {
+                    kind: TypeDef::Enum(doc_cases),
+                    owner: None,
+                    name: type_def.name.clone(),
+                    docs: type_def.docs.contents.clone(),
+                }
+            }
+            TypeDefKind::Resource => {
+                self.print_resource(resolve, *id, resource_funcs.get(&id).unwrap_or(&Vec::new()))
+            }
+            TypeDefKind::Type(ty) => DocType {
+                name: type_def.name.clone(),
+                kind: TypeDef::Type(Box::new(DocTypeRef::from_type(ty, self, resolve))),
+                owner: self.print_owner(type_def.owner, resolve),
+                docs: type_def.docs.contents.clone(),
+            },
+            TypeDefKind::Handle(_) => unreachable!(),
+            TypeDefKind::Option(ty) => DocType {
+                kind: TypeDef::Option(Box::new(self.print_type_def_ref(&ty, resolve, &self))),
+                owner: None,
+                name: type_def.name.clone(),
+                docs: type_def.docs.contents.clone(),
+            },
+            TypeDefKind::Result(Result_ { ok, err }) => {
+                let mut children = Vec::new();
+                if let Some(ok) = ok {
+                    children.push(self.print_doc_type(None, resolve, &ok));
+                };
+                if let Some(err) = err {
+                    children.push(self.print_doc_type(None, resolve, &err));
+                };
+                DocType {
+                    kind: TypeDef::Result(Box::new(ResultTypes {
+                        ok: if let Some(ok_ty) = &ok {
+                            Some(self.print_type_def_ref(ok_ty, resolve, &self))
+                        } else {
+                            None
+                        },
+                        error: if let Some(err_ty) = &err {
+                            Some(self.print_type_def_ref(err_ty, resolve, &self))
+                        } else {
+                            None
+                        },
+                    })),
+                    owner: None,
+                    name: type_def.name.clone(),
+                    docs: type_def.docs.contents.clone(),
+                }
+            }
+            TypeDefKind::List(ty) => DocType {
+                kind: TypeDef::List(Box::new(self.print_type_def_ref(&ty, resolve, &self))),
+                owner: None,
+                name: type_def.name.clone(),
+                docs: type_def.docs.contents.clone(),
+            },
+            TypeDefKind::Future(_) => unreachable!(),
+            TypeDefKind::Stream(_) => unreachable!(),
+            TypeDefKind::Unknown => unreachable!(),
         }
     }
 
@@ -271,7 +973,7 @@ impl DocsPrinter {
         resource_funcs: &HashMap<TypeId, Vec<&Function>>,
     ) -> Types {
         let mut use_decls = Vec::new();
-        let mut decomposed_types = Vec::new();
+        let mut doc_types = Vec::new();
         // Partition types defined in this interface into either those imported
         // from foreign interfaces or those defined locally.
         let mut types_to_declare = Vec::new();
@@ -326,718 +1028,283 @@ impl DocsPrinter {
         }
 
         for id in types_to_declare {
-            self.print_docs(&resolve.types[id].docs);
-            let type_def = &resolve.types[id];
-            match type_def.kind.clone() {
-                TypeDefKind::Record(Record { fields }) => {
-                    let mut field_tys = Vec::new();
-                    for field in fields {
-                        match field.ty {
-                            Type::Id(id) => {
-                                let check = self.print_type(Some(field.name), &field.ty, resolve);
-                                field_tys.push(check);
-                            }
-                            _ => field_tys.push(self.print_type(
-                                Some(field.name),
-                                &field.ty,
-                                resolve,
-                            )),
-                        }
-                    }
-                    decomposed_types.push(DecomposedType {
-                        owner: None,
-                        name: type_def.name.clone(),
-                        docs: type_def.docs.contents.clone(),
-                        val: "record".to_string(),
-                        children: Some(field_tys),
-                        methods: None,
-                    });
-                }
-                TypeDefKind::Flags(Flags { flags }) => {
-                    let mut flag_types = Vec::new();
-                    for flag in flags {
-                        flag_types.push(DecomposedType {
-                            owner: None,
-                            name: Some(flag.name.clone()),
-                            docs: flag.docs.contents,
-                            val: flag.name.clone(),
-                            children: None,
-                            methods: None,
-                        });
-                    }
-                    decomposed_types.push(DecomposedType {
-                        owner: None,
-                        name: type_def.name.clone(),
-                        docs: type_def.docs.contents.clone(),
-                        val: "flags".to_string(),
-                        children: Some(flag_types),
-                        methods: None,
-                    });
-                }
-                TypeDefKind::Tuple(Tuple { types }) => {
-                    let mut tys = Vec::new();
-                    for ty in types {
-                        match ty {
-                            Type::Id(id) => {
-                                let ty = &resolve.types[id];
-                                let child_ty = &resolve.types[id];
-                                let owner = self.print_owner(child_ty.owner, resolve);
-                                if let Some(name) = child_ty.name.clone() {
-                                    tys.push(DecomposedType {
-                                        owner: owner.clone(),
-                                        name: ty.name.clone(),
-                                        docs: ty.docs.contents.clone(),
-                                        val: name,
-                                        children: None,
-                                        methods: None,
-                                    })
-                                }
-                            }
-                            Type::Bool => {
-                                tys.push(DecomposedType {
-                                    owner: None,
-                                    name: None,
-                                    docs: None,
-                                    val: "bool".to_string(),
-                                    children: None,
-                                    methods: None,
-                                });
-                            }
-                            Type::U8 => {
-                                tys.push(DecomposedType {
-                                    owner: None,
-                                    name: None,
-                                    docs: None,
-                                    val: "u8".to_string(),
-                                    children: None,
-                                    methods: None,
-                                });
-                            }
-                            Type::U16 => tys.push(DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: None,
-                                val: "u16".to_string(),
-                                children: None,
-                                methods: None,
-                            }),
-                            Type::U32 => tys.push(DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: None,
-                                val: "u32".to_string(),
-                                children: None,
-                                methods: None,
-                            }),
-                            Type::U64 => tys.push(DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: None,
-                                val: "u64".to_string(),
-                                children: None,
-                                methods: None,
-                            }),
-                            Type::S8 => tys.push(DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: None,
-                                val: "s8".to_string(),
-                                children: None,
-                                methods: None,
-                            }),
-                            Type::S16 => tys.push(DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: None,
-                                val: "s16".to_string(),
-                                children: None,
-                                methods: None,
-                            }),
-                            Type::S32 => tys.push(DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: None,
-                                val: "s32".to_string(),
-                                children: None,
-                                methods: None,
-                            }),
-                            Type::S64 => tys.push(DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: None,
-                                val: "s64".to_string(),
-                                children: None,
-                                methods: None,
-                            }),
-                            Type::Float32 => tys.push(DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: None,
-                                val: "Float32".to_string(),
-                                children: None,
-                                methods: None,
-                            }),
-                            Type::Float64 => tys.push(DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: None,
-                                val: "Float64".to_string(),
-                                children: None,
-                                methods: None,
-                            }),
-                            Type::Char => tys.push(DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: None,
-                                val: "Char".to_string(),
-                                children: None,
-                                methods: None,
-                            }),
-                            Type::String => tys.push(DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: None,
-                                val: "String".to_string(),
-                                children: None,
-                                methods: None,
-                            }),
-                        }
-                    }
-                    decomposed_types.push(DecomposedType {
-                        owner: None,
-                        name: type_def.name.clone(),
-                        docs: type_def.docs.contents.clone(),
-                        val: "tuple".to_string(),
-                        children: Some(tys),
-                        methods: None,
-                    });
-                }
-                TypeDefKind::Variant(Variant { cases }) => {
-                    let mut case_types = Vec::new();
-                    for case in cases {
-                        if let Some(ty) = case.ty {
-                            match ty {
-                                Type::Id(id) => {
-                                    let case_ty = &resolve.types[id];
-
-                                    let owner = self.print_owner(case_ty.owner, resolve);
-                                    match case_ty.kind {
-                                        TypeDefKind::Handle(handle) => match handle {
-                                            Handle::Own(owned) => {
-                                                let owned_ty = &resolve.types[owned];
-                                                let owner =
-                                                    self.print_owner(owned_ty.owner, &resolve);
-                                                case_types.push(DecomposedType {
-                                                    owner: owner.clone(),
-                                                    name: None,
-                                                    docs: case.docs.contents.clone(),
-                                                    val: case.name,
-                                                    children: Some(vec![DecomposedType {
-                                                        owner: owner.clone(),
-                                                        name: None,
-                                                        docs: owned_ty.docs.contents.clone(),
-                                                        val: owned_ty.name.clone().unwrap(),
-                                                        children: None,
-                                                        methods: None,
-                                                    }]),
-                                                    methods: None,
-                                                })
-                                            }
-                                            Handle::Borrow(borrow) => {
-                                                let borrowed_ty = &resolve.types[borrow];
-                                                let owner =
-                                                    self.print_owner(borrowed_ty.owner, &resolve);
-                                                case_types.push(DecomposedType {
-                                                    owner: owner.clone(),
-                                                    name: None,
-                                                    docs: case.docs.contents.clone(),
-                                                    val: case.name,
-                                                    children: Some(vec![DecomposedType {
-                                                        owner: owner.clone(),
-                                                        name: None,
-                                                        docs: borrowed_ty.docs.contents.clone(),
-                                                        val: borrowed_ty.name.clone().unwrap(),
-                                                        children: None,
-                                                        methods: None,
-                                                    }]),
-                                                    methods: None,
-                                                })
-                                            }
-                                        },
-                                        _ => {
-                                            case_types.push(self.print_type(
-                                                Some(case.name.clone()),
-                                                &ty,
-                                                resolve,
-                                            ));
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    case_types.push(self.print_decomposed_type(
-                                        Some(case.name.clone()),
-                                        resolve,
-                                        &ty,
-                                    ));
-                                }
-                            }
-                        } else {
-                            let owner = self.print_owner(type_def.owner, resolve);
-                            case_types.push(DecomposedType {
-                                owner,
-                                name: Some(case.name.clone()),
-                                docs: case.docs.contents,
-                                val: "".to_string(),
-                                children: None,
-                                methods: None,
-                            });
-                        }
-                    }
-                    decomposed_types.push(DecomposedType {
-                        owner: None,
-                        name: type_def.name.clone(),
-                        docs: type_def.docs.contents.clone(),
-                        val: "variant".to_string(),
-                        children: Some(case_types),
-                        methods: None,
-                    });
-                }
-                TypeDefKind::Enum(Enum { cases }) => {
-                    let mut case_types = Vec::new();
-                    for case in cases {
-                        case_types.push(DecomposedType {
-                            owner: None,
-                            name: Some(case.name.clone()),
-                            docs: case.docs.contents,
-                            val: "".to_string(),
-                            children: None,
-                            methods: None,
-                        });
-                    }
-                    decomposed_types.push(DecomposedType {
-                        owner: None,
-                        name: type_def.name.clone(),
-                        docs: type_def.docs.contents.clone(),
-                        val: "enum".to_string(),
-                        children: Some(case_types),
-                        methods: None,
-                    });
-                }
-                TypeDefKind::Resource => {
-                    decomposed_types.push(self.print_decomposed_resource(
-                        resolve,
-                        id,
-                        resource_funcs.get(&id).unwrap_or(&Vec::new()),
-                    ));
-                }
-                TypeDefKind::Type(ty) => {
-                    decomposed_types.push(self.print_decomposed_type(
-                        type_def.name.clone(),
-                        resolve,
-                        &ty,
-                    ));
-                }
-                TypeDefKind::Handle(_) => todo!(),
-                TypeDefKind::Option(ty) => {
-                    decomposed_types.push(DecomposedType {
-                        owner: None,
-                        name: type_def.name.clone(),
-                        docs: type_def.docs.contents.clone(),
-                        val: "option".to_string(),
-                        children: Some(vec![self.print_decomposed_type(
-                            type_def.name.clone(),
-                            resolve,
-                            &ty,
-                        )]),
-                        methods: None,
-                    });
-                }
-                TypeDefKind::Result(Result_ { ok, err }) => {
-                    let mut children = Vec::new();
-                    if let Some(ok) = ok {
-                        children.push(self.print_decomposed_type(None, resolve, &ok));
-                    };
-                    if let Some(err) = err {
-                        children.push(self.print_decomposed_type(None, resolve, &err));
-                    };
-                    decomposed_types.push(DecomposedType {
-                        owner: None,
-                        name: type_def.name.clone(),
-                        docs: type_def.docs.contents.clone(),
-                        val: "result".to_string(),
-                        children: Some(children),
-                        methods: None,
-                    });
-                }
-                TypeDefKind::List(ty) => decomposed_types.push(DecomposedType {
-                    owner: None,
-                    name: type_def.name.clone(),
-                    docs: type_def.docs.contents.clone(),
-                    val: "list".to_string(),
-                    children: Some(vec![self.print_type(None, &ty, resolve)]),
-                    methods: None,
-                }),
-                TypeDefKind::Future(_) => todo!(),
-                TypeDefKind::Stream(_) => todo!(),
-                TypeDefKind::Unknown => todo!(),
-            }
+            doc_types.push(self.render_type(resolve, &id, resource_funcs));
         }
         Types {
             use_decls,
-            decomposed_types,
+            doc_types,
         }
     }
 
-    fn print_decomposed_type(
-        &mut self,
-        name: Option<String>,
-        resolve: &Resolve,
-        ty: &Type,
-    ) -> DecomposedType {
+    fn print_doc_type(&mut self, name: Option<String>, resolve: &Resolve, ty: &Type) -> DocType {
         match ty {
-            Type::Bool => DecomposedType {
+            Type::Bool => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::Bool)),
                 owner: None,
                 name,
                 docs: None,
-                val: "bool".to_string(),
-                children: None,
-                methods: None,
             },
-            Type::U8 => DecomposedType {
+            Type::U8 => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::U8)),
                 owner: None,
                 name,
                 docs: None,
-                val: "u8".to_string(),
-                children: None,
-                methods: None,
             },
-            Type::U16 => DecomposedType {
+            Type::U16 => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::U16)),
                 owner: None,
                 name,
                 docs: None,
-                val: "u16".to_string(),
-                children: None,
-                methods: None,
             },
-            Type::U32 => DecomposedType {
+            Type::U32 => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::U32)),
                 owner: None,
                 name,
                 docs: None,
-                val: "u32".to_string(),
-                children: None,
-                methods: None,
             },
-            Type::U64 => DecomposedType {
+            Type::U64 => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::U64)),
                 owner: None,
                 name,
                 docs: None,
-                val: "u64".to_string(),
-                children: None,
-                methods: None,
             },
-            Type::S8 => DecomposedType {
+            Type::S8 => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::S8)),
                 owner: None,
                 name,
                 docs: None,
-                val: "s8".to_string(),
-                children: None,
-                methods: None,
             },
-            Type::S16 => DecomposedType {
+            Type::S16 => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::S16)),
                 owner: None,
                 name,
                 docs: None,
-                val: "s16".to_string(),
-                children: None,
-                methods: None,
             },
-            Type::S32 => DecomposedType {
+            Type::S32 => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::S32)),
                 owner: None,
                 name,
                 docs: None,
-                val: "s32".to_string(),
-                children: None,
-                methods: None,
             },
-            Type::S64 => DecomposedType {
+            Type::S64 => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::S64)),
                 owner: None,
                 name,
                 docs: None,
-                val: "s64".to_string(),
-                children: None,
-                methods: None,
             },
-            Type::Float32 => DecomposedType {
+            Type::Float32 => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::Float32)),
                 owner: None,
                 name,
                 docs: None,
-                val: "float32".to_string(),
-                children: None,
-                methods: None,
             },
-            Type::Float64 => DecomposedType {
+            Type::Float64 => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::Float64)),
                 owner: None,
                 name,
                 docs: None,
-                val: "float64".to_string(),
-                children: None,
-                methods: None,
             },
-            Type::Char => DecomposedType {
+            Type::Char => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::Char)),
                 owner: None,
                 name,
                 docs: None,
-                val: "char".to_string(),
-                children: None,
-                methods: None,
             },
-            Type::String => DecomposedType {
+            Type::String => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::String)),
                 owner: None,
                 name,
                 docs: None,
-                val: "string".to_string(),
-                children: None,
-                methods: None,
             },
             Type::Id(id) => {
                 let ty = &resolve.types[*id];
                 let owner = self.print_owner(ty.owner, resolve);
-                let decomposed = match &ty.kind {
+                let doc_ty = match &ty.kind {
                     TypeDefKind::Record(Record { fields }) => {
-                        let mut decomposed_fields = Vec::new();
+                        let mut doc_fields = Vec::new();
                         for field in fields {
-                            decomposed_fields.push(self.print_type(
-                                Some(field.name.clone()),
-                                &field.ty,
-                                resolve,
-                            ))
+                            let doc_field = DocTypeRef {
+                                name: Some(field.name.clone()),
+                                owner: None,
+                                docs: field.docs.contents.clone(),
+                                ty: Some(TypeDef::from_type(&field.ty, Some(self), Some(resolve))),
+                            };
+                            doc_fields.push(doc_field);
                         }
-                        DecomposedType {
+                        DocType {
+                            kind: TypeDef::Record(Box::new(doc_fields)),
                             owner: owner.clone(),
                             name,
                             docs: ty.docs.contents.clone(),
-                            val: "record".to_string(),
-                            children: Some(decomposed_fields),
-                            methods: None,
                         }
                     }
                     TypeDefKind::Resource => {
-                        if let Some(ty_name) = ty.name.clone() {
-                            DecomposedType {
+                        if let Some(_) = ty.name.clone() {
+                            DocType {
+                                kind: TypeDef::Resource(ResourceDoc {
+                                    owner: owner.clone(),
+                                    name: name.clone(),
+                                    docs: ty.docs.contents.clone(),
+                                    methods: vec![],
+                                }),
                                 owner: owner.clone(),
                                 name,
                                 docs: ty.docs.contents.clone(),
-                                val: ty_name,
-                                children: None,
-                                methods: None,
                             }
                         } else {
-                            DecomposedType {
+                            DocType {
+                                kind: TypeDef::Resource(ResourceDoc {
+                                    owner: owner.clone(),
+                                    name: name.clone(),
+                                    docs: ty.docs.contents.clone(),
+                                    methods: vec![],
+                                }),
                                 owner: owner.clone(),
                                 name,
                                 docs: ty.docs.contents.clone(),
-                                val: "resource".to_string(),
-                                children: None,
-                                methods: None,
                             }
                         }
                     }
-                    TypeDefKind::Handle(handle) => match handle {
-                        Handle::Own(owned_id) => {
-                            let owned_ty = &resolve.types[*owned_id];
-                            let owner = self.print_owner(owned_ty.owner, resolve);
-                            let child = match owned_ty.kind {
-                                TypeDefKind::Record(_) => todo!(),
-                                TypeDefKind::Resource => DecomposedType {
-                                    owner: owner.clone(),
-                                    name: None,
+                    TypeDefKind::Handle(handle) => {
+                        let handle_ref = match handle {
+                            Handle::Own(owned_id) => {
+                                let owned_ty = &resolve.types[*owned_id];
+                                ResourceHandle::Own(DocTypeRef {
+                                    name: owned_ty.name.clone(),
+                                    owner: self.print_owner(owned_ty.owner, resolve),
                                     docs: owned_ty.docs.contents.clone(),
-                                    val: if let Some(name) = owned_ty.name.clone() {
-                                        name
-                                    } else {
-                                        "".to_string()
-                                    },
-                                    children: None,
-                                    methods: None,
-                                },
-                                TypeDefKind::Handle(_) => todo!(),
-                                TypeDefKind::Flags(_) => todo!(),
-                                TypeDefKind::Tuple(_) => todo!(),
-                                TypeDefKind::Variant(_) => todo!(),
-                                TypeDefKind::Enum(_) => todo!(),
-                                TypeDefKind::Option(_) => todo!(),
-                                TypeDefKind::Result(_) => todo!(),
-                                TypeDefKind::List(_) => todo!(),
-                                TypeDefKind::Future(_) => todo!(),
-                                TypeDefKind::Stream(_) => todo!(),
-                                TypeDefKind::Type(ty) => {
-                                    self.print_decomposed_type(None, resolve, &ty)
-                                }
-                                TypeDefKind::Unknown => todo!(),
-                            };
-                            child
-                        }
-                        Handle::Borrow(borrowed_id) => {
-                            let borrowed_ty = &resolve.types[*borrowed_id];
-                            let owner = self.print_owner(borrowed_ty.owner, resolve);
-                            let children = match borrowed_ty.kind {
-                                TypeDefKind::Record(_) => todo!(),
-                                TypeDefKind::Resource => {
-                                    if let Some(borrowed_name) = &borrowed_ty.name {
-                                        Some(vec![DecomposedType {
-                                            owner: owner.clone(),
-                                            name: name.clone(),
-                                            docs: borrowed_ty.docs.contents.clone(),
-                                            val: borrowed_name.clone(),
-                                            children: None,
-                                            methods: None,
-                                        }])
-                                    } else {
-                                        None
-                                    }
-                                }
-                                TypeDefKind::Handle(_) => todo!(),
-                                TypeDefKind::Flags(_) => todo!(),
-                                TypeDefKind::Tuple(_) => todo!(),
-                                TypeDefKind::Variant(_) => todo!(),
-                                TypeDefKind::Enum(_) => todo!(),
-                                TypeDefKind::Option(_) => todo!(),
-                                TypeDefKind::Result(_) => todo!(),
-                                TypeDefKind::List(_) => todo!(),
-                                TypeDefKind::Future(_) => todo!(),
-                                TypeDefKind::Stream(_) => todo!(),
-                                TypeDefKind::Type(ty) => {
-                                    self.print_decomposed_type(None, resolve, &ty).children
-                                }
-                                TypeDefKind::Unknown => todo!(),
-                            };
-                            DecomposedType {
-                                owner,
-                                name,
-                                docs: ty.docs.contents.clone(),
-                                val: "borrow".to_string(),
-                                children,
-                                methods: None,
+                                    ty: Some(TypeDef::from_type_def_kind(
+                                        &owned_ty.kind,
+                                        self,
+                                        resolve,
+                                    )),
+                                })
                             }
-                        }
-                    },
-                    TypeDefKind::Flags(Flags { flags }) => {
-                        let mut flag_types = Vec::new();
-                        for flag in flags {
-                            flag_types.push(DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: flag.docs.contents.clone(),
-                                val: flag.name.clone(),
-                                children: None,
-                                methods: None,
-                            });
-                        }
-                        DecomposedType {
-                            owner: None,
-                            name: None,
+                            Handle::Borrow(borrowed_id) => {
+                                let borrowed_ty = &resolve.types[*borrowed_id];
+                                ResourceHandle::Borrow(DocTypeRef {
+                                    name: borrowed_ty.name.clone(),
+                                    owner: self.print_owner(borrowed_ty.owner, resolve),
+                                    docs: borrowed_ty.docs.contents.clone(),
+                                    ty: Some(TypeDef::from_type_def_kind(
+                                        &borrowed_ty.kind,
+                                        self,
+                                        resolve,
+                                    )),
+                                })
+                            }
+                        };
+                        DocType {
+                            kind: TypeDef::Handle(Box::new(handle_ref)),
+                            owner,
+                            name,
                             docs: ty.docs.contents.clone(),
-                            val: "flags".to_string(),
-                            children: Some(flag_types),
-                            methods: None,
                         }
                     }
+                    TypeDefKind::Flags(Flags { flags }) => DocType {
+                        kind: TypeDef::Flags(
+                            flags
+                                .iter()
+                                .map(|f| Flag {
+                                    name: f.name.clone(),
+                                    docs: f.docs.contents.clone(),
+                                })
+                                .collect(),
+                        ),
+                        owner: None,
+                        name: None,
+                        docs: ty.docs.contents.clone(),
+                    },
                     TypeDefKind::Variant(Variant { cases }) => {
                         let mut case_types = Vec::new();
+                        let mut doc_cases = Vec::new();
                         for case in cases {
                             if let Some(case_ty) = case.ty {
-                                let decomposed = self.print_decomposed_type(
-                                    Some(case.name.clone()),
-                                    resolve,
-                                    &case_ty,
-                                );
-                                case_types.push(decomposed);
+                                let doc_type =
+                                    self.print_doc_type(Some(case.name.clone()), resolve, &case_ty);
+                                case_types.push(doc_type);
+                                let doc_case = DocTypeRef {
+                                    name: Some(case.name.clone()),
+                                    owner: None,
+                                    docs: case.docs.contents.clone(),
+                                    ty: Some(TypeDef::from_type(&case_ty, None, None)),
+                                };
+                                doc_cases.push(doc_case);
                             } else {
-                                case_types.push(DecomposedType {
+                                case_types.push(DocType {
+                                    kind: TypeDef::Variant(Box::new(vec![])),
                                     owner: None,
                                     name: Some(case.name.clone()),
                                     docs: case.docs.contents.clone(),
-                                    val: "".to_string(),
-                                    children: None,
-                                    methods: None,
                                 });
+                                let doc_case = DocTypeRef {
+                                    name: Some(case.name.clone()),
+                                    owner: None,
+                                    docs: case.docs.contents.clone(),
+                                    ty: None,
+                                };
+                                doc_cases.push(doc_case);
                             };
                         }
-                        DecomposedType {
+                        DocType {
+                            kind: TypeDef::Variant(Box::new(doc_cases)),
                             owner: None,
                             name: None,
                             docs: ty.docs.contents.clone(),
-                            val: "cases".to_string(),
-                            methods: None,
-                            children: Some(case_types),
                         }
                     }
                     TypeDefKind::Tuple(Tuple { types }) => {
                         let mut tys = Vec::new();
                         for ty in types {
-                            tys.push(self.print_decomposed_type(None, resolve, ty));
+                            let type_ref = DocTypeRef::from_type(*ty, self, resolve);
+                            tys.push(type_ref);
                         }
-                        DecomposedType {
+                        DocType {
+                            kind: TypeDef::Tuple(Box::new(tys)),
                             owner: None,
                             name,
                             docs: ty.docs.contents.clone(),
-                            val: "tuple".to_string(),
-                            children: Some(tys),
-                            methods: None,
                         }
                     }
                     TypeDefKind::Enum(Enum { cases }) => {
                         let mut case_types = Vec::new();
+                        let mut doc_cases = Vec::new();
                         for case in cases {
-                            case_types.push(DecomposedType {
+                            doc_cases.push(case.name.clone());
+                            case_types.push(DocType {
+                                kind: TypeDef::Primitive(Box::new(DocPrimitive::Bool)),
                                 owner: None,
                                 name: Some(case.name.clone()),
                                 docs: case.docs.contents.clone(),
-                                val: case.name.clone(),
-                                children: None,
-                                methods: None,
                             });
                         }
-                        DecomposedType {
+                        DocType {
+                            kind: TypeDef::Enum(doc_cases),
                             owner: None,
                             name: None,
                             docs: ty.docs.contents.clone(),
-                            val: "enum".to_string(),
-                            children: Some(case_types),
-                            methods: None,
                         }
                     }
                     TypeDefKind::Option(option_ty) => match option_ty {
                         Type::Id(id) => {
                             let ty = &resolve.types[*id];
                             let owner = self.print_owner(ty.owner, resolve);
-                            DecomposedType {
+                            DocType {
+                                kind: TypeDef::Option(Box::new(
+                                    self.print_type_def_ref(&option_ty, resolve, &self),
+                                )),
                                 owner: owner.clone(),
                                 name: None,
                                 docs: ty.docs.contents.clone(),
-                                val: "option".to_string(),
-                                children: Some(vec![DecomposedType {
-                                    owner: owner.clone(),
-                                    name: ty.name.clone(),
-                                    docs: ty.docs.contents.clone(),
-                                    val: if let Some(name) = &ty.name {
-                                        name.to_owned()
-                                    } else {
-                                        "".to_string()
-                                    },
-                                    children: None,
-                                    methods: None,
-                                }]),
-                                methods: None,
                             }
                         }
-                        _ => DecomposedType {
+                        _ => DocType {
+                            kind: TypeDef::Option(Box::new(
+                                self.print_type_def_ref(&option_ty, resolve, &self),
+                            )),
                             owner,
                             name: name.clone(),
                             docs: ty.docs.contents.clone(),
-                            val: "option".to_string(),
-                            children: Some(vec![self.print_type(name, option_ty, resolve)]),
-                            methods: None,
                         },
                     },
                     TypeDefKind::Result(Result_ { ok, err }) => {
@@ -1047,20 +1314,21 @@ impl DocsPrinter {
                                 Type::Id(id) => {
                                     let ok_ty = &resolve.types[*id];
                                     let owner = self.print_owner(ok_ty.owner, resolve);
-                                    if let Some(ok_name) = &ok_ty.name {
-                                        result_types.push(DecomposedType {
+                                    if let Some(_) = &ok_ty.name {
+                                        result_types.push(DocType {
+                                            kind: TypeDef::from_type_def_kind(
+                                                &ok_ty.kind,
+                                                &self,
+                                                resolve,
+                                            ),
                                             owner,
                                             name: name.clone(),
                                             docs: ok_ty.docs.contents.clone(),
-                                            val: ok_name.to_string(),
-                                            children: None,
-                                            methods: None,
                                         });
                                     }
                                 }
                                 _ => {
-                                    result_types
-                                        .push(self.print_decomposed_type(None, resolve, &ok));
+                                    result_types.push(self.print_doc_type(None, resolve, &ok));
                                 }
                             }
                         }
@@ -1069,364 +1337,271 @@ impl DocsPrinter {
                                 Type::Id(id) => {
                                     let err_ty = &resolve.types[*id];
                                     let owner = self.print_owner(err_ty.owner, resolve);
-                                    if let Some(err_name) = &err_ty.name {
-                                        result_types.push(DecomposedType {
+                                    if let Some(_) = &err_ty.name {
+                                        result_types.push(DocType {
+                                            kind: TypeDef::from_type_def_kind(
+                                                &err_ty.kind,
+                                                &self,
+                                                resolve,
+                                            ),
                                             owner,
                                             name: None,
                                             docs: err_ty.docs.contents.clone(),
-                                            val: err_name.to_string(),
-                                            children: None,
-                                            methods: None,
                                         });
                                     }
                                 }
                                 _ => {
-                                    result_types
-                                        .push(self.print_decomposed_type(None, resolve, &err));
+                                    result_types.push(self.print_doc_type(None, resolve, &err));
                                 }
                             }
                         }
-                        DecomposedType {
+                        DocType {
+                            kind: TypeDef::Result(Box::new(ResultTypes {
+                                ok: if let Some(ok_ty) = &ok {
+                                    Some(self.print_type_def_ref(ok_ty, resolve, &self))
+                                } else {
+                                    None
+                                },
+                                error: if let Some(err_ty) = &err {
+                                    Some(self.print_type_def_ref(err_ty, resolve, &self))
+                                } else {
+                                    None
+                                },
+                            })),
                             owner: None,
                             name,
                             docs: ty.docs.contents.clone(),
-                            val: "result".to_string(),
-                            children: Some(result_types),
-                            methods: None,
                         }
                     }
-                    TypeDefKind::List(list_ty) => DecomposedType {
+                    TypeDefKind::List(list_ty) => DocType {
+                        kind: TypeDef::List(Box::new(
+                            self.print_type_def_ref(&list_ty, resolve, &self),
+                        )),
                         owner: None,
                         name,
                         docs: ty.docs.contents.clone(),
-                        val: "list".to_string(),
-                        children: Some(vec![self.print_type(None, &list_ty, resolve)]),
-                        methods: None,
                     },
-                    TypeDefKind::Future(_) => todo!(),
-                    TypeDefKind::Stream(_) => todo!(),
+                    TypeDefKind::Future(_) => unreachable!(),
+                    TypeDefKind::Stream(_) => unreachable!(),
                     TypeDefKind::Type(ty) => match ty {
                         Type::Id(id) => {
                             let ty = &resolve.types[*id];
                             let owner = self.print_owner(ty.owner, resolve);
-                            if let Some(ty_name) = &ty.name {
-                                DecomposedType {
+                            if let Some(_) = &ty.name {
+                                DocType {
+                                    kind: TypeDef::from_type_def_kind(&ty.kind, &self, resolve),
                                     owner,
                                     name,
                                     docs: ty.docs.contents.clone(),
-                                    val: ty_name.to_string(),
-                                    children: None,
-                                    methods: None,
                                 }
                             } else {
-                                DecomposedType {
+                                DocType {
+                                    kind: TypeDef::from_type_def_kind(&ty.kind, &self, resolve),
                                     owner,
                                     name: None,
                                     docs: ty.docs.contents.clone(),
-                                    val: "".to_string(),
-                                    children: None,
-                                    methods: None,
                                 }
                             }
                         }
-                        _ => self.print_decomposed_type(None, resolve, ty),
+                        _ => self.print_doc_type(None, resolve, ty),
                     },
-                    TypeDefKind::Unknown => todo!(),
+                    TypeDefKind::Unknown => unreachable!(),
                 };
-                decomposed
+                doc_ty
             }
         }
     }
 
-    fn print_type(&self, name: Option<String>, ty: &Type, resolve: &Resolve) -> DecomposedType {
+    fn print_type_def_ref(
+        &self,
+        ty: &Type,
+        resolve: &Resolve,
+        printer: &DocsPrinter,
+    ) -> DocTypeRef {
         match ty {
-            Type::Bool => DecomposedType {
+            Type::Bool => DocTypeRef {
+                name: None,
                 owner: None,
-                name,
                 docs: None,
-                val: "bool".to_string(),
-                children: None,
-                methods: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Bool))),
             },
-            Type::U8 => DecomposedType {
+            Type::U8 => DocTypeRef {
+                name: None,
                 owner: None,
-                name,
                 docs: None,
-                val: "u8".to_string(),
-                children: None,
-                methods: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U8))),
             },
-            Type::U16 => DecomposedType {
+            Type::U16 => DocTypeRef {
+                name: None,
                 owner: None,
-                name,
                 docs: None,
-                val: "u16".to_string(),
-                children: None,
-                methods: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U16))),
             },
-            Type::U32 => DecomposedType {
+            Type::U32 => DocTypeRef {
+                name: None,
                 owner: None,
-                name,
                 docs: None,
-                val: "u32".to_string(),
-                children: None,
-                methods: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U32))),
             },
-            Type::U64 => DecomposedType {
+            Type::U64 => DocTypeRef {
+                name: None,
                 owner: None,
-                name,
                 docs: None,
-                val: "u64".to_string(),
-                children: None,
-                methods: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U64))),
             },
-            Type::S8 => DecomposedType {
+            Type::S8 => DocTypeRef {
+                name: None,
                 owner: None,
-                name,
                 docs: None,
-                val: "s8".to_string(),
-                children: None,
-                methods: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S8))),
             },
-            Type::S16 => DecomposedType {
+            Type::S16 => DocTypeRef {
+                name: None,
                 owner: None,
-                name,
                 docs: None,
-                val: "s16".to_string(),
-                children: None,
-                methods: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S16))),
             },
-            Type::S32 => DecomposedType {
+            Type::S32 => DocTypeRef {
+                name: None,
                 owner: None,
-                name,
                 docs: None,
-                val: "s32".to_string(),
-                children: None,
-                methods: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S32))),
             },
-            Type::S64 => DecomposedType {
+            Type::S64 => DocTypeRef {
+                name: None,
                 owner: None,
-                name,
                 docs: None,
-                val: "s64".to_string(),
-                children: None,
-                methods: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S64))),
             },
-            Type::Float32 => DecomposedType {
+            Type::Float32 => DocTypeRef {
+                name: None,
                 owner: None,
-                name,
                 docs: None,
-                val: "float32".to_string(),
-                children: None,
-                methods: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Float32))),
             },
-            Type::Float64 => DecomposedType {
+            Type::Float64 => DocTypeRef {
+                name: None,
                 owner: None,
-                name,
                 docs: None,
-                val: "float64".to_string(),
-                children: None,
-                methods: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Float64))),
             },
-            Type::Char => DecomposedType {
+            Type::Char => DocTypeRef {
+                name: None,
                 owner: None,
-                name,
                 docs: None,
-                val: "char".to_string(),
-                children: None,
-                methods: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Char))),
             },
-            Type::String => DecomposedType {
+            Type::String => DocTypeRef {
+                name: None,
                 owner: None,
-                name,
                 docs: None,
-                val: "string".to_string(),
-                children: None,
-                methods: None,
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::String))),
             },
             Type::Id(id) => {
-                let ty = &resolve.types[*id];
-                match ty.kind.clone() {
+                let inner = &resolve.types[*id];
+                let owner = printer.print_owner(inner.owner, resolve);
+                match inner.kind {
                     TypeDefKind::Record(_) => {
-                        let owner = self.print_owner(ty.owner, resolve);
-                        DecomposedType {
+                        return DocTypeRef {
+                            name: inner.name.clone(),
                             owner,
-                            name: name,
-                            docs: None,
-                            val: if let Some(name) = ty.name.clone() {
-                                name.to_string()
-                            } else {
-                                "".to_string()
-                            },
-                            children: None,
-                            methods: None,
-                        }
+                            docs: inner.docs.contents.clone(),
+                            ty: None,
+                        };
                     }
-                    TypeDefKind::Resource => todo!(),
-                    TypeDefKind::Handle(handle) => match handle {
-                        Handle::Own(own) => {
-                            let own_ty = &resolve.types[own];
-                            let owner = self.print_owner(own_ty.owner, resolve);
-                            DecomposedType {
-                                owner,
-                                name: name,
-                                docs: None,
-                                val: if let Some(name) = own_ty.name.clone() {
-                                    name.to_string()
-                                } else {
-                                    "".to_string()
-                                },
-                                children: None,
-                                methods: None,
-                            }
-                        }
-                        Handle::Borrow(borrow) => {
-                            let borrowed_ty = &resolve.types[borrow];
-                            let owner = self.print_owner(borrowed_ty.owner, resolve);
-                            DecomposedType {
-                                owner: None,
-                                name: None,
-                                docs: None,
-                                val: "borrow".to_string(),
-                                children: Some(vec![DecomposedType {
-                                    owner,
-                                    name: None,
-                                    docs: None,
-                                    val: if let Some(name) = borrowed_ty.name.clone() {
-                                        name.to_string()
-                                    } else {
-                                        "".to_string()
-                                    },
-                                    children: None,
-                                    methods: None,
-                                }]),
-                                methods: None,
-                            }
-                        }
+                    TypeDefKind::Resource => DocTypeRef {
+                        name: inner.name.clone(),
+                        owner,
+                        docs: inner.docs.contents.clone(),
+                        ty: None,
                     },
-                    TypeDefKind::Tuple(Tuple { types }) => {
-                        let mut printed_types = Vec::new();
-                        for ty in types {
-                            if let Type::Id(id) = ty {
-                                let inner = &resolve.types[id];
-                                let owner = self.print_owner(inner.owner, resolve);
-                                if let Some(inner_name) = inner.name.clone() {
-                                    printed_types.push(DecomposedType {
-                                        owner,
-                                        name: name.clone(),
-                                        docs: None,
-                                        val: inner_name,
-                                        children: None,
-                                        methods: None,
-                                    })
-                                }
-                            } else {
-                                printed_types.push(self.print_type(None, &ty, resolve))
-                            }
-                        }
-                        DecomposedType {
-                            owner: None,
-                            name: None,
-                            docs: None,
-                            val: "tuple".to_string(),
-                            children: Some(printed_types),
-                            methods: None,
-                        }
+                    TypeDefKind::Handle(_) => {
+                        return DocTypeRef::from_type(*ty, self, resolve);
                     }
-                    TypeDefKind::Flags(_) | TypeDefKind::Variant(_) | TypeDefKind::Enum(_) => {
-                        let owner = self.print_owner(ty.owner, resolve);
-                        if let Some(ty_name) = ty.name.clone() {
-                            DecomposedType {
-                                owner,
-                                name: Some(ty_name.clone()),
-                                docs: None,
-                                val: if let Some(name) = ty.name.clone() {
-                                    name.to_string()
-                                } else {
-                                    "".to_string()
-                                },
-                                children: None,
-                                methods: None,
-                            }
-                        } else {
-                            DecomposedType {
-                                owner,
-                                name: name.clone(),
-                                docs: None,
-                                val: "variant".to_string(),
-                                children: None,
-                                methods: None,
-                            }
-                        }
-                    }
-                    TypeDefKind::Option(inner) => {
-                        let owner = self.print_owner(ty.owner, resolve);
-                        DecomposedType {
+                    TypeDefKind::Flags(_) => {
+                        return DocTypeRef {
+                            name: inner.name.clone(),
                             owner,
-                            name: name.clone(),
-                            docs: None,
-                            val: "option".to_string(),
-                            children: Some(vec![self.print_type(name, &inner, resolve)]),
-                            methods: None,
-                        }
+                            docs: inner.docs.contents.clone(),
+                            ty: None,
+                        };
+                    }
+                    TypeDefKind::Tuple(_) => {
+                        return DocTypeRef::from_type(*ty, self, resolve);
+                    }
+                    TypeDefKind::Variant(_) => {
+                        return DocTypeRef {
+                            name: inner.name.clone(),
+                            owner,
+                            docs: inner.docs.contents.clone(),
+                            ty: None,
+                        };
+                    }
+                    TypeDefKind::Enum(_) => {
+                        return DocTypeRef {
+                            name: inner.name.clone(),
+                            owner: owner.clone(),
+                            docs: inner.docs.contents.clone(),
+                            ty: None,
+                        };
+                    }
+                    TypeDefKind::Option(_) => {
+                        return DocTypeRef::from_type(*ty, self, resolve);
                     }
                     TypeDefKind::Result(Result_ { ok, err }) => {
-                        let mut result_types = Vec::new();
-                        if let Some(ok_ty) = ok {
-                            result_types.push(self.print_type(name.clone(), &ok_ty, resolve));
-                        }
-                        if let Some(err_ty) = err {
-                            result_types.push(self.print_type(name, &err_ty, resolve));
-                        }
-                        DecomposedType {
-                            owner: None,
+                        return DocTypeRef {
                             name: None,
+                            owner: None,
                             docs: None,
-                            val: "result".to_string(),
-                            children: Some(result_types),
-                            methods: None,
-                        }
+                            ty: Some(TypeDef::Result(Box::new(ResultTypes {
+                                ok: if let Some(ok_ty) = &ok {
+                                    Some(printer.print_type_def_ref(ok_ty, resolve, printer))
+                                } else {
+                                    None
+                                },
+                                error: if let Some(err_ty) = &err {
+                                    Some(printer.print_type_def_ref(err_ty, resolve, printer))
+                                } else {
+                                    None
+                                },
+                            }))),
+                        };
                     }
-                    TypeDefKind::List(inner) => {
-                        let owner = self.print_owner(ty.owner, resolve);
-                        if let Some(ty_name) = ty.name.clone() {
-                            DecomposedType {
-                                owner,
-                                name: Some(ty_name.clone()),
-                                docs: None,
-                                val: ty_name,
-                                children: None,
-                                methods: None,
-                            }
+                    TypeDefKind::List(inner_ty) => {
+                        if let Some(list_name) = &inner.name {
+                            return DocTypeRef {
+                                name: Some(list_name.clone()),
+                                owner: owner.clone(),
+                                docs: inner.docs.contents.clone(),
+                                ty: Some(TypeDef::Type(Box::new(DocTypeRef {
+                                    name: Some(list_name.clone()),
+                                    owner: owner.clone(),
+                                    docs: inner.docs.contents.clone(),
+                                    ty: None,
+                                }))),
+                            };
                         } else {
-                            DecomposedType {
-                                owner,
-                                name: name.clone(),
+                            return DocTypeRef {
+                                name: None,
+                                owner: None,
                                 docs: None,
-                                val: "list".to_string(),
-                                children: Some(vec![self.print_type(name, &inner, resolve)]),
-                                methods: None,
-                            }
+                                ty: Some(TypeDef::List(Box::new(
+                                    printer.print_type_def_ref(&inner_ty, resolve, self),
+                                ))),
+                            };
                         }
                     }
-                    TypeDefKind::Future(_) => todo!(),
-                    TypeDefKind::Stream(_) => todo!(),
-                    TypeDefKind::Type(id) => {
-                        let owner = self.print_owner(ty.owner, resolve);
-                        DecomposedType {
-                            owner,
-                            name: name,
-                            docs: ty.docs.contents.clone(),
-                            val: if let Some(name) = ty.name.clone() {
-                                name.to_string()
-                            } else {
-                                "".to_string()
-                            },
-                            children: None,
-                            methods: None,
-                        }
+                    TypeDefKind::Future(_) => unreachable!(),
+                    TypeDefKind::Stream(_) => unreachable!(),
+                    TypeDefKind::Type(_) => {
+                        return DocTypeRef {
+                            name: inner.name.clone(),
+                            owner: owner.clone(),
+                            docs: inner.docs.contents.clone(),
+                            ty: None,
+                        };
                     }
-                    TypeDefKind::Unknown => todo!(),
+                    TypeDefKind::Unknown => unreachable!(),
                 }
             }
         }
@@ -1436,7 +1611,7 @@ impl DocsPrinter {
         &mut self,
         resolve: &Resolve,
         func: &Function,
-    ) -> (Vec<(String, DecomposedType)>, Vec<(String, DecomposedType)>) {
+    ) -> (Vec<Param>, Vec<FuncResult>) {
         let mut params = Vec::new();
         let mut ret = Vec::new();
 
@@ -1446,10 +1621,10 @@ impl DocsPrinter {
             _ => 0,
         };
         for (name, ty) in func.params.iter().skip(params_to_skip) {
-            params.push((
-                name.clone(),
-                self.print_type(Some(name.clone()), ty, resolve),
-            ));
+            params.push(Param {
+                name: name.clone(),
+                ty: self.print_type_def_ref(ty, resolve, &self),
+            });
         }
 
         match &func.results {
@@ -1457,12 +1632,18 @@ impl DocsPrinter {
                 0 => (),
                 _ => {
                     for (name, ty) in rs.iter() {
-                        ret.push((name.clone(), self.print_decomposed_type(None, resolve, ty)));
+                        ret.push(FuncResult {
+                            name: name.clone(),
+                            ty: self.print_type_def_ref(ty, resolve, &self),
+                        });
                     }
                 }
             },
             Results::Anon(ty) => {
-                ret.push(("".to_string(), self.print_type(None, ty, resolve)));
+                ret.push(FuncResult {
+                    name: "".to_string(),
+                    ty: self.print_type_def_ref(ty, resolve, &self),
+                });
             }
         }
         (params, ret)
@@ -1475,7 +1656,27 @@ impl DocsPrinter {
             imports: Vec::new(),
             exports: Vec::new(),
         };
-        for (key, item) in &world.imports {
+        let mut resource_funcs = HashMap::new();
+        let mut freestanding = Vec::new();
+        for (_, item) in &world.imports {
+            if let wit_parser::WorldItem::Function(func) = item {
+                if let Some(id) = register_resource_func(func) {
+                    resource_funcs.entry(id).or_insert(Vec::new()).push(func);
+                } else {
+                    freestanding.push((func.name.clone(), func));
+                }
+            }
+        }
+        for (_, item) in &world.exports {
+            if let wit_parser::WorldItem::Function(func) = item {
+                if let Some(id) = register_resource_func(func) {
+                    resource_funcs.entry(id).or_insert(Vec::new()).push(func);
+                } else {
+                    freestanding.push((func.name.clone(), func));
+                }
+            }
+        }
+        for (_, item) in &world.imports {
             match item {
                 wit_parser::WorldItem::Interface(i) => {
                     let iface = &resolve.interfaces[*i];
@@ -1505,17 +1706,27 @@ impl DocsPrinter {
                         } else {
                             String::new()
                         };
-                        printing_world.imports.push(import_name.to_owned());
+                        printing_world
+                            .imports
+                            .push((Some(import_name.to_owned()), WorldItem::Interface));
                     }
-                    // let owner = self.print_owner(, resolve)
                 }
-                wit_parser::WorldItem::Function(i) => {
-                    // let func = self.print_function(resolve, func)
+                wit_parser::WorldItem::Function(func) => {
+                    let printing_func = self.print_function(resolve, func);
+                    printing_world
+                        .imports
+                        .push((Some(func.name.clone()), WorldItem::Function(printing_func)));
                 }
-                wit_parser::WorldItem::Type(id) => todo!(),
+                wit_parser::WorldItem::Type(id) => {
+                    let doc_ty = self.render_type(resolve, id, &resource_funcs);
+                    printing_world
+                        .imports
+                        .push((doc_ty.name.clone(), WorldItem::Type(doc_ty)));
+                }
             }
         }
-        for (key, item) in &world.exports {
+
+        for (_, item) in &world.exports {
             match item {
                 wit_parser::WorldItem::Interface(i) => {
                     let iface = &resolve.interfaces[*i];
@@ -1545,11 +1756,23 @@ impl DocsPrinter {
                         } else {
                             String::new()
                         };
-                        printing_world.exports.push(export_name.to_owned());
+                        printing_world
+                            .exports
+                            .push((Some(export_name.to_owned()), WorldItem::Interface));
                     }
                 }
-                wit_parser::WorldItem::Function(i) => {}
-                wit_parser::WorldItem::Type(id) => todo!(),
+                wit_parser::WorldItem::Function(func) => {
+                    let printing_func = self.print_function(resolve, func);
+                    printing_world
+                        .exports
+                        .push((Some(func.name.clone()), WorldItem::Function(printing_func)));
+                }
+                wit_parser::WorldItem::Type(id) => {
+                    let doc_ty = self.render_type(resolve, id, &resource_funcs);
+                    printing_world
+                        .exports
+                        .push((doc_ty.name.clone(), WorldItem::Type(doc_ty)));
+                }
             }
         }
         printing_world
@@ -1562,7 +1785,7 @@ impl DocsPrinter {
         let mut resource_funcs = HashMap::new();
         let mut freestanding = Vec::new();
         for (name, func) in interface.functions.iter() {
-            if let Some(id) = resource_func(func) {
+            if let Some(id) = register_resource_func(func) {
                 resource_funcs.entry(id).or_insert(Vec::new()).push(func);
             } else {
                 freestanding.push((name, func));
@@ -1582,14 +1805,14 @@ impl DocsPrinter {
         let mut funcs = Vec::new();
         for (name, func) in freestanding {
             let docs = self.print_docs(&func.docs);
-            let (params, result) = self.print_function(resolve, func);
+            let func = self.print_function(resolve, &func);
             funcs.push(Func {
                 name: name.to_string(),
                 is_static: false,
-                docs,
-                params,
-                result,
-            })
+                docs: docs.clone(),
+                params: func.0,
+                results: func.1,
+            });
         }
         self.any_items = prev_items;
         Iface { type_defs, funcs }
@@ -1599,16 +1822,6 @@ impl DocsPrinter {
 /// is false
 pub fn is_false(b: &bool) -> bool {
     !b
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct Func {
-    name: String,
-    #[serde(default, skip_serializing_if = "is_false")]
-    is_static: bool,
-    docs: String,
-    params: Vec<(String, DecomposedType)>,
-    result: Vec<(String, DecomposedType)>,
 }
 
 struct Iface {
@@ -1640,8 +1853,7 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                 };
                 printing_pkg.interfaces.push(rendered);
             }
-            for (name, id) in pkg.worlds.iter() {
-                let docs = printer.print_docs(&resolve.worlds[*id].docs);
+            for (_, id) in pkg.worlds.iter() {
                 let world = printer.print_world(&resolve, *id);
                 printing_pkg.worlds.push(world);
             }
@@ -1651,12 +1863,29 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
             let pkg = &resolve.packages.get(pkg_id).unwrap();
 
             let world = &resolve.worlds[*world_id];
-            if let Some(pkg) = world.package {
-                let package = &resolve.packages[pkg];
-            }
             let mut printing_pkg =
                 PrintingPackage::new(pkg.name.name.clone(), BinaryKind::Component);
-            for (key, item) in &world.imports {
+            let mut resource_funcs = HashMap::new();
+            let mut freestanding = Vec::new();
+            for (_, item) in &world.imports {
+                if let wit_parser::WorldItem::Function(func) = item {
+                    if let Some(id) = register_resource_func(func) {
+                        resource_funcs.entry(id).or_insert(Vec::new()).push(func);
+                    } else {
+                        freestanding.push((func.name.clone(), func));
+                    }
+                }
+            }
+            for (_, item) in &world.exports {
+                if let wit_parser::WorldItem::Function(func) = item {
+                    if let Some(id) = register_resource_func(func) {
+                        resource_funcs.entry(id).or_insert(Vec::new()).push(func);
+                    } else {
+                        freestanding.push((func.name.clone(), func));
+                    }
+                }
+            }
+            for (_, item) in &world.imports {
                 match item {
                     wit_parser::WorldItem::Interface(id) => {
                         let iface = &resolve.interfaces[*id];
@@ -1692,13 +1921,13 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                     }
                     wit_parser::WorldItem::Function(func) => {
                         let docs = printer.print_docs(&func.docs);
-                        let (params, result) = printer.print_function(resolve, func);
+                        let (params, results) = printer.print_function(resolve, func);
                         printing_pkg.funcs.push(Func {
                             name: func.name.clone(),
                             is_static: false,
                             docs,
                             params,
-                            result,
+                            results,
                         });
                     }
                     wit_parser::WorldItem::Type(id) => {
@@ -1706,48 +1935,107 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                         match &type_def.kind {
                             TypeDefKind::Record(Record { fields }) => {
                                 let mut field_tys = Vec::new();
+                                let mut doc_fields = Vec::new();
                                 for field in fields {
                                     match field.ty {
-                                        Type::Id(id) => {
-                                            let child_ty = &resolve.types[id];
-                                            let owner =
-                                                printer.print_owner(child_ty.owner, resolve);
-                                            if let Some(name) = child_ty.name.clone() {
-                                                field_tys.push(DecomposedType {
-                                                    owner: owner.clone(),
-                                                    name: Some(field.name.clone()),
-                                                    docs: field.docs.contents.clone(),
-                                                    val: name,
-                                                    children: None,
-                                                    methods: None,
-                                                });
-                                            }
+                                        Type::Id(inner_id) => {
+                                            let check = printer.print_doc_type(
+                                                Some(field.name.clone()),
+                                                resolve,
+                                                &field.ty,
+                                            );
+                                            field_tys.push(check);
+                                            let inner = &resolve.types[inner_id];
+                                            let doc_field = DocTypeRef {
+                                                name: Some(field.name.clone()),
+                                                owner: printer.print_owner(inner.owner, resolve),
+                                                docs: field.docs.contents.clone(),
+                                                ty: if let Some(_) = inner.name.clone() {
+                                                    Some(TypeDef::Type(Box::new(DocTypeRef {
+                                                        name: inner.name.clone(),
+                                                        owner: printer
+                                                            .print_owner(inner.owner, resolve),
+                                                        docs: inner.docs.contents.clone(),
+                                                        ty: None,
+                                                    })))
+                                                } else {
+                                                    Some(TypeDef::from_type(
+                                                        &field.ty,
+                                                        Some(&printer),
+                                                        Some(resolve),
+                                                    ))
+                                                },
+                                            };
+                                            doc_fields.push(doc_field);
                                         }
-                                        _ => field_tys.push(printer.print_decomposed_type(
-                                            Some(field.name.clone()),
-                                            resolve,
-                                            &field.ty,
-                                        )),
+                                        _ => {
+                                            let doc_field = DocTypeRef {
+                                                name: Some(field.name.clone()),
+                                                owner: None,
+                                                docs: field.docs.contents.clone(),
+                                                ty: Some(TypeDef::from_type(
+                                                    &field.ty,
+                                                    Some(&printer),
+                                                    Some(resolve),
+                                                )),
+                                            };
+                                            doc_fields.push(doc_field);
+                                            field_tys.push(printer.print_doc_type(
+                                                Some(field.name.clone()),
+                                                resolve,
+                                                &field.ty,
+                                            ))
+                                        }
                                     }
                                 }
-                                printing_pkg
-                                    .type_defs
-                                    .decomposed_types
-                                    .push(DecomposedType {
-                                        owner: None,
-                                        name: type_def.name.clone(),
-                                        docs: type_def.docs.contents.clone(),
-                                        val: "record".to_string(),
-                                        children: Some(field_tys),
-                                        methods: None,
-                                    });
+                                printing_pkg.type_defs.doc_types.push(DocType {
+                                    kind: TypeDef::Record(Box::new(doc_fields)),
+                                    owner: None,
+                                    name: type_def.name.clone(),
+                                    docs: type_def.docs.contents.clone(),
+                                });
                             }
-                            TypeDefKind::Resource => todo!(),
-                            TypeDefKind::Handle(_) => todo!(),
-                            TypeDefKind::Flags(_) => todo!(),
-                            TypeDefKind::Tuple(_) => todo!(),
+                            TypeDefKind::Resource => {
+                                let resource = printer.print_resource(
+                                    resolve,
+                                    *id,
+                                    resource_funcs.get(&id).unwrap_or(&Vec::new()),
+                                );
+                                printing_pkg.type_defs.doc_types.push(resource);
+                            }
+                            TypeDefKind::Handle(_) => unreachable!(),
+                            TypeDefKind::Flags(Flags { flags }) => {
+                                printing_pkg.type_defs.doc_types.push(DocType {
+                                    kind: TypeDef::Flags(
+                                        flags
+                                            .iter()
+                                            .map(|f| Flag {
+                                                name: f.name.clone(),
+                                                docs: f.docs.contents.clone(),
+                                            })
+                                            .collect(),
+                                    ),
+                                    owner: None,
+                                    name: type_def.name.clone(),
+                                    docs: type_def.docs.contents.clone(),
+                                })
+                            }
+                            TypeDefKind::Tuple(Tuple { types }) => {
+                                let mut tys = Vec::new();
+                                for ty in types {
+                                    let type_ref = DocTypeRef::from_type(*ty, &printer, resolve);
+                                    tys.push(type_ref);
+                                }
+                                printing_pkg.type_defs.doc_types.push(DocType {
+                                    name: type_def.name.clone(),
+                                    kind: TypeDef::Tuple(Box::new(tys)),
+                                    owner: None,
+                                    docs: type_def.docs.contents.clone(),
+                                })
+                            }
                             TypeDefKind::Variant(Variant { cases }) => {
                                 let mut case_types = Vec::new();
+                                let mut doc_cases = Vec::new();
                                 for case in cases {
                                     if let Some(ty) = case.ty {
                                         match ty {
@@ -1763,28 +2051,25 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                                                                 owned_ty.owner,
                                                                 &resolve,
                                                             );
-                                                            case_types.push(DecomposedType {
+                                                            let doc_case = DocTypeRef {
+                                                                name: Some(case.name.clone()),
+                                                                owner: None,
+                                                                docs: owned_ty
+                                                                    .docs
+                                                                    .contents
+                                                                    .clone(),
+                                                                ty: Some(TypeDef::from_type(
+                                                                    &ty, None, None,
+                                                                )),
+                                                            };
+                                                            doc_cases.push(doc_case);
+                                                            case_types.push(DocType {
+                                                                kind: TypeDef::Variant(Box::new(
+                                                                    vec![],
+                                                                )),
                                                                 owner: owner.clone(),
                                                                 name: None,
                                                                 docs: case.docs.contents.clone(),
-                                                                val: case.name.clone(),
-                                                                children: Some(vec![
-                                                                    DecomposedType {
-                                                                        owner: owner.clone(),
-                                                                        name: None,
-                                                                        docs: owned_ty
-                                                                            .docs
-                                                                            .contents
-                                                                            .clone(),
-                                                                        val: owned_ty
-                                                                            .name
-                                                                            .clone()
-                                                                            .unwrap(),
-                                                                        children: None,
-                                                                        methods: None,
-                                                                    },
-                                                                ]),
-                                                                methods: None,
                                                             })
                                                         }
                                                         Handle::Borrow(borrow) => {
@@ -1794,146 +2079,173 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                                                                 borrowed_ty.owner,
                                                                 &resolve,
                                                             );
-                                                            case_types.push(DecomposedType {
+                                                            let doc_case = DocTypeRef {
+                                                                name: Some(case.name.clone()),
+                                                                docs: borrowed_ty
+                                                                    .docs
+                                                                    .contents
+                                                                    .clone(),
+                                                                owner: None,
+                                                                ty: Some(TypeDef::from_type(
+                                                                    &ty, None, None,
+                                                                )),
+                                                            };
+                                                            doc_cases.push(doc_case);
+                                                            case_types.push(DocType {
+                                                                kind: TypeDef::Variant(Box::new(
+                                                                    vec![],
+                                                                )),
                                                                 owner: owner.clone(),
                                                                 name: None,
                                                                 docs: case.docs.contents.clone(),
-                                                                val: case.name.clone(),
-                                                                children: Some(vec![
-                                                                    DecomposedType {
-                                                                        owner: owner.clone(),
-                                                                        name: None,
-                                                                        docs: borrowed_ty
-                                                                            .docs
-                                                                            .contents
-                                                                            .clone(),
-                                                                        val: borrowed_ty
-                                                                            .name
-                                                                            .clone()
-                                                                            .unwrap(),
-                                                                        children: None,
-                                                                        methods: None,
-                                                                    },
-                                                                ]),
-                                                                methods: None,
                                                             })
                                                         }
                                                     },
                                                     _ => {
-                                                        if let Some(name) = child_ty.name.clone() {
-                                                            case_types.push(DecomposedType {
+                                                        if let Some(_) = child_ty.name.clone() {
+                                                            let doc_case = DocTypeRef {
+                                                                name: Some(case.name.clone()),
+                                                                docs: child_ty
+                                                                    .docs
+                                                                    .contents
+                                                                    .clone(),
+                                                                owner: None,
+                                                                ty: Some(TypeDef::from_type(
+                                                                    &ty, None, None,
+                                                                )),
+                                                            };
+                                                            doc_cases.push(doc_case);
+                                                            case_types.push(DocType {
+                                                                kind: TypeDef::Variant(Box::new(
+                                                                    vec![],
+                                                                )),
                                                                 owner: owner.clone(),
                                                                 name: Some(case.name.clone()),
                                                                 docs: case.docs.contents.clone(),
-                                                                val: case.name.clone(),
-                                                                children: Some(vec![
-                                                                    DecomposedType {
-                                                                        owner: owner.clone(),
-                                                                        name: None,
-                                                                        docs: child_ty
-                                                                            .docs
-                                                                            .contents
-                                                                            .clone(),
-                                                                        val: name,
-                                                                        children: None,
-                                                                        methods: None,
-                                                                    },
-                                                                ]),
-                                                                methods: None,
                                                             });
                                                         }
                                                     }
                                                 }
                                             }
                                             _ => {
+                                                let doc_case = DocTypeRef {
+                                                    name: Some(case.name.clone()),
+                                                    owner: None,
+                                                    docs: case.docs.contents.clone(),
+                                                    ty: Some(TypeDef::from_type(&ty, None, None)),
+                                                };
+                                                doc_cases.push(doc_case);
                                                 case_types.push(
-                                                    printer
-                                                        .print_decomposed_type(None, resolve, &ty),
+                                                    printer.print_doc_type(None, resolve, &ty),
                                                 );
                                             }
                                         }
                                     } else {
-                                        case_types.push(DecomposedType {
+                                        let doc_case = DocTypeRef {
+                                            name: Some(case.name.clone()),
+                                            docs: case.docs.contents.clone(),
+                                            owner: None,
+                                            ty: None,
+                                        };
+                                        doc_cases.push(doc_case);
+                                        case_types.push(DocType {
+                                            kind: TypeDef::Variant(Box::new(vec![])),
                                             owner: None,
                                             name: Some(case.name.clone()),
                                             docs: case.docs.contents.clone(),
-                                            val: case.name.clone(),
-                                            children: None,
-                                            methods: None,
                                         });
                                     }
                                 }
-                                printing_pkg
-                                    .type_defs
-                                    .decomposed_types
-                                    .push(DecomposedType {
-                                        owner: None,
-                                        name: type_def.name.clone(),
-                                        docs: type_def.docs.contents.clone(),
-                                        val: "variant".to_string(),
-                                        children: Some(case_types),
-                                        methods: None,
-                                    });
+                                printing_pkg.type_defs.doc_types.push(DocType {
+                                    name: type_def.name.clone(),
+                                    kind: TypeDef::Variant(Box::new(doc_cases)),
+                                    owner: None,
+                                    docs: type_def.docs.contents.clone(),
+                                });
                             }
                             TypeDefKind::Enum(Enum { cases }) => {
                                 let mut case_types = Vec::new();
+                                let mut doc_cases = Vec::new();
                                 for case in cases {
-                                    case_types.push(DecomposedType {
-                                        owner: None,
+                                    doc_cases.push(case.name.clone());
+                                    case_types.push(DocType {
                                         name: Some(case.name.clone()),
+                                        kind: TypeDef::Primitive(Box::new(DocPrimitive::Bool)),
+                                        owner: None,
                                         docs: case.docs.contents.clone(),
-                                        val: case.name.clone(),
-                                        children: None,
-                                        methods: None,
                                     });
                                 }
-                                printing_pkg
-                                    .type_defs
-                                    .decomposed_types
-                                    .push(DecomposedType {
-                                        owner: None,
-                                        name: type_def.name.clone(),
-                                        docs: type_def.docs.contents.clone(),
-                                        val: "enum".to_string(),
-                                        children: Some(case_types),
-                                        methods: None,
-                                    });
+                                printing_pkg.type_defs.doc_types.push(DocType {
+                                    name: type_def.name.clone(),
+                                    kind: TypeDef::Enum(doc_cases),
+                                    owner: None,
+                                    docs: type_def.docs.contents.clone(),
+                                });
                             }
-                            TypeDefKind::Option(_) => todo!(),
-                            TypeDefKind::Result(_) => todo!(),
+                            TypeDefKind::Option(inner) => {
+                                printing_pkg.type_defs.doc_types.push(DocType {
+                                    kind: TypeDef::Option(Box::new(
+                                        printer.print_type_def_ref(&inner, resolve, &printer),
+                                    )),
+                                    owner: None,
+                                    name: type_def.name.clone(),
+                                    docs: type_def.docs.contents.clone(),
+                                })
+                            }
+                            TypeDefKind::Result(Result_ { ok, err }) => {
+                                printing_pkg.type_defs.doc_types.push(DocType {
+                                    kind: TypeDef::Result(Box::new(ResultTypes {
+                                        ok: if let Some(ok_ty) = &ok {
+                                            Some(
+                                                printer
+                                                    .print_type_def_ref(ok_ty, resolve, &printer),
+                                            )
+                                        } else {
+                                            None
+                                        },
+                                        error: if let Some(err_ty) = &err {
+                                            Some(
+                                                printer
+                                                    .print_type_def_ref(err_ty, resolve, &printer),
+                                            )
+                                        } else {
+                                            None
+                                        },
+                                    })),
+                                    owner: None,
+                                    name: type_def.name.clone(),
+                                    docs: type_def.docs.contents.clone(),
+                                })
+                            }
                             TypeDefKind::List(ty) => {
+                                printing_pkg.type_defs.doc_types.push(DocType {
+                                    kind: TypeDef::List(Box::new(
+                                        printer.print_type_def_ref(&ty, resolve, &printer),
+                                    )),
+                                    owner: None,
+                                    name: type_def.name.clone(),
+                                    docs: type_def.docs.contents.clone(),
+                                })
+                            }
+                            TypeDefKind::Future(_) => unreachable!(),
+                            TypeDefKind::Stream(_) => unreachable!(),
+                            TypeDefKind::Type(ty) => {
                                 printing_pkg
                                     .type_defs
-                                    .decomposed_types
-                                    .push(DecomposedType {
-                                        owner: None,
-                                        name: type_def.name.clone(),
-                                        docs: type_def.docs.contents.clone(),
-                                        val: "list".to_string(),
-                                        children: Some(vec![
-                                            printer.print_decomposed_type(None, resolve, &ty)
-                                        ]),
-                                        methods: None,
-                                    })
-                            }
-                            TypeDefKind::Future(_) => todo!(),
-                            TypeDefKind::Stream(_) => todo!(),
-                            TypeDefKind::Type(ty) => {
-                                printing_pkg.type_defs.decomposed_types.push(
-                                    printer.print_decomposed_type(
+                                    .doc_types
+                                    .push(printer.print_doc_type(
                                         type_def.name.clone(),
                                         resolve,
                                         &ty,
-                                    ),
-                                );
+                                    ));
                             }
-                            TypeDefKind::Unknown => todo!(),
+                            TypeDefKind::Unknown => unreachable!(),
                         }
                     }
                 }
             }
 
-            for (key, item) in &world.exports {
+            for (_, item) in &world.exports {
                 match item {
                     wit_parser::WorldItem::Interface(id) => {
                         let iface = &resolve.interfaces[*id];
@@ -1969,33 +2281,17 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                     }
                     wit_parser::WorldItem::Function(func) => {
                         let docs = printer.print_docs(&func.docs);
-                        let (params, result) = printer.print_function(resolve, func);
+                        let (params, results) = printer.print_function(resolve, func);
                         printing_pkg.funcs.push(Func {
                             name: func.name.clone(),
                             is_static: false,
                             docs,
                             params,
-                            result,
+                            results,
                         });
                     }
-                    wit_parser::WorldItem::Type(id) => {
-                        let ty = &resolve.types[*id];
-                        match ty.kind {
-                            TypeDefKind::Record(_) => todo!(),
-                            TypeDefKind::Resource => todo!(),
-                            TypeDefKind::Handle(_) => todo!(),
-                            TypeDefKind::Flags(_) => todo!(),
-                            TypeDefKind::Tuple(_) => todo!(),
-                            TypeDefKind::Variant(_) => todo!(),
-                            TypeDefKind::Enum(_) => todo!(),
-                            TypeDefKind::Option(_) => todo!(),
-                            TypeDefKind::Result(_) => todo!(),
-                            TypeDefKind::List(_) => todo!(),
-                            TypeDefKind::Future(_) => todo!(),
-                            TypeDefKind::Stream(_) => todo!(),
-                            TypeDefKind::Type(_) => todo!(),
-                            TypeDefKind::Unknown => todo!(),
-                        }
+                    wit_parser::WorldItem::Type(_) => {
+                        // Appears Not Possible to export types from world
                     }
                 }
             }
