@@ -128,6 +128,7 @@ struct Types {
 #[derive(Deserialize, Serialize)]
 struct UsedType {
     name: String,
+    alias: Option<String>,
     decl: String,
 }
 
@@ -257,17 +258,17 @@ impl DocTypeRef {
                 docs: None,
                 ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S64))),
             },
-            Type::Float32 => Self {
+            Type::F32 => Self {
                 name: None,
                 owner: None,
                 docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Float32))),
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::F32))),
             },
-            Type::Float64 => Self {
+            Type::F64 => Self {
                 name: None,
                 owner: None,
                 docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Float64))),
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::F64))),
             },
             Type::Char => Self {
                 name: None,
@@ -332,7 +333,12 @@ impl DocTypeRef {
                             ty: Some(TypeDef::Handle(Box::new(handle_ref))),
                         }
                     }
-                    TypeDefKind::Flags(_) => todo!(),
+                    TypeDefKind::Flags(_) => Self {
+                        name: ty.name.clone(),
+                        owner: printer.print_owner(ty.owner, resolve),
+                        docs: ty.docs.contents.clone(),
+                        ty: None,
+                    },
                     TypeDefKind::Tuple(Tuple { types }) => {
                         let mut type_refs = Vec::new();
                         for ty in types {
@@ -440,8 +446,8 @@ impl TypeDef {
             Type::S16 => TypeDef::Primitive(Box::new(DocPrimitive::S16)),
             Type::S32 => TypeDef::Primitive(Box::new(DocPrimitive::S32)),
             Type::S64 => TypeDef::Primitive(Box::new(DocPrimitive::S64)),
-            Type::Float32 => TypeDef::Primitive(Box::new(DocPrimitive::Float32)),
-            Type::Float64 => TypeDef::Primitive(Box::new(DocPrimitive::Float64)),
+            Type::F32 => TypeDef::Primitive(Box::new(DocPrimitive::F32)),
+            Type::F64 => TypeDef::Primitive(Box::new(DocPrimitive::F64)),
             Type::Char => TypeDef::Primitive(Box::new(DocPrimitive::Char)),
             Type::String => TypeDef::Primitive(Box::new(DocPrimitive::String)),
             Type::Id(id) => {
@@ -648,8 +654,8 @@ enum DocPrimitive {
     S16,
     S32,
     S64,
-    Float32,
-    Float64,
+    F32,
+    F64,
     Char,
     String,
     Id(Box<TypeDef>),
@@ -686,7 +692,18 @@ impl DocsPrinter {
     fn print_owner(&self, owner: TypeOwner, resolve: &Resolve) -> Option<String> {
         match owner {
             // May Need to implement world branch
-            TypeOwner::World(_) => None,
+            TypeOwner::World(id) => {
+                let world = &resolve.worlds[id];
+                if let Some(pkg) = world.package {
+                    let pkg = resolve.packages[pkg].clone();
+                    let namespace = pkg.name.namespace.clone();
+                    let name = pkg.name.name.clone();
+                    let full = Some(format!("{}:{}#{}", namespace, name, world.name));
+                    full
+                } else {
+                    Some(resolve.worlds[id].name.clone())
+                }
+            }
             TypeOwner::Interface(id) => {
                 let iface = &resolve.interfaces[id];
                 if let Some(pkg) = iface.package {
@@ -1016,11 +1033,19 @@ impl DocsPrinter {
                 _ => unreachable!(),
             };
             let path = self.print_path_to_interface(resolve, id);
-            for (my_name, other_name) in tys {
+            for (other_name, my_name) in tys {
                 if my_name == other_name {
-                    let decl = format!("{path}.{{{other_name}}}");
+                    let decl = format!("{path}.{{{my_name}}}");
+                    use_decls.push(UsedType {
+                        name: my_name.clone(),
+                        alias: None,
+                        decl,
+                    });
+                } else {
+                    let decl = format!("{path}.{{{my_name}}}");
                     use_decls.push(UsedType {
                         name: my_name.to_string(),
+                        alias: Some(other_name.to_string()),
                         decl,
                     });
                 }
@@ -1092,14 +1117,14 @@ impl DocsPrinter {
                 name,
                 docs: None,
             },
-            Type::Float32 => DocType {
-                kind: TypeDef::Primitive(Box::new(DocPrimitive::Float32)),
+            Type::F32 => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::F32)),
                 owner: None,
                 name,
                 docs: None,
             },
-            Type::Float64 => DocType {
-                kind: TypeDef::Primitive(Box::new(DocPrimitive::Float64)),
+            Type::F64 => DocType {
+                kind: TypeDef::Primitive(Box::new(DocPrimitive::F64)),
                 owner: None,
                 name,
                 docs: None,
@@ -1473,17 +1498,17 @@ impl DocsPrinter {
                 docs: None,
                 ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S64))),
             },
-            Type::Float32 => DocTypeRef {
+            Type::F32 => DocTypeRef {
                 name: None,
                 owner: None,
                 docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Float32))),
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::F32))),
             },
-            Type::Float64 => DocTypeRef {
+            Type::F64 => DocTypeRef {
                 name: None,
                 owner: None,
                 docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Float64))),
+                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::F64))),
             },
             Type::Char => DocTypeRef {
                 name: None,
