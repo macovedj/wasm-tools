@@ -407,18 +407,70 @@ impl DocTypeRef {
                             }))),
                         };
                     }
-                    TypeDefKind::List(inner) => Self {
-                        name: ty.name.clone(),
-                        owner: printer.print_owner(ty.owner, resolve),
-                        docs: ty.docs.contents.clone(),
-                        ty: if let Some(_) = &ty.name {
-                            None
+                    TypeDefKind::List(inner_ty) => {
+                        if let Some(inner_name) = &ty.name {
+                            return DocTypeRef {
+                                name: Some(inner_name.clone()),
+                                owner: printer.print_owner(ty.owner, resolve),
+                                docs: ty.docs.contents.clone(),
+                                ty: Some(TypeDef::Type(Box::new(DocTypeRef {
+                                    name: Some(inner_name.clone()),
+                                    owner: printer.print_owner(ty.owner, resolve),
+                                    docs: ty.docs.contents.clone(),
+                                    ty: None,
+                                }))),
+                            };
                         } else {
-                            Some(TypeDef::List(Box::new(DocTypeRef::from_type(
-                                inner, printer, resolve,
-                            ))))
-                        },
-                    },
+                            if let Type::Id(id) = inner_ty {
+                                let list_ty = &resolve.types[id];
+                                if let Some(name) = &list_ty.name {
+                                    return DocTypeRef {
+                                        name: None,
+                                        owner: None,
+                                        docs: None,
+                                        ty: Some(TypeDef::List(Box::new(DocTypeRef {
+                                            name: Some(name.clone()),
+                                            owner: printer.print_owner(list_ty.owner, resolve),
+                                            docs: list_ty.docs.contents.clone(),
+                                            ty: None,
+                                        }))),
+                                    };
+                                } else {
+                                    return DocTypeRef {
+                                        name: None,
+                                        owner: None,
+                                        docs: None,
+                                        ty: Some(TypeDef::List(Box::new(DocTypeRef {
+                                            name: None,
+                                            owner: None,
+                                            docs: None,
+                                            ty: Some(TypeDef::from_type(
+                                                &inner_ty,
+                                                Some(printer),
+                                                Some(resolve),
+                                            )),
+                                        }))),
+                                    };
+                                }
+                            } else {
+                                return DocTypeRef {
+                                    name: None,
+                                    owner: None,
+                                    docs: None,
+                                    ty: Some(TypeDef::List(Box::new(DocTypeRef {
+                                        name: None,
+                                        owner: None,
+                                        docs: None,
+                                        ty: Some(TypeDef::from_type(
+                                            &inner_ty,
+                                            Some(printer),
+                                            Some(resolve),
+                                        )),
+                                    }))),
+                                };
+                            }
+                        }
+                    }
                     TypeDefKind::Future(_) => unreachable!(),
                     TypeDefKind::Stream(_) => unreachable!(),
                     TypeDefKind::Type(_) => Self {
@@ -581,27 +633,32 @@ impl TypeDef {
                 TypeDef::Enum(cases.into_iter().map(|case| case.name.clone()).collect())
             }
             TypeDefKind::Option(inner) => TypeDef::Option(Box::new(
-                printer.print_type_def_ref(inner, resolve, printer),
+                // printer.print_type_def_ref(inner, resolve, printer),
+                DocTypeRef::from_type(*inner, printer, resolve),
             )),
             TypeDefKind::Result(Result_ { ok, err }) => TypeDef::Result(Box::new(ResultTypes {
                 ok: if let Some(ok_ty) = &ok {
-                    Some(printer.print_type_def_ref(ok_ty, resolve, printer))
+                    // Some(printer.print_type_def_ref(ok_ty, resolve, printer))
+                    Some(DocTypeRef::from_type(*ok_ty, printer, resolve))
                 } else {
                     None
                 },
                 error: if let Some(err_ty) = &err {
-                    Some(printer.print_type_def_ref(err_ty, resolve, printer))
+                    // Some(printer.print_type_def_ref(err_ty, resolve, printer))
+                    Some(DocTypeRef::from_type(*err_ty, printer, resolve))
                 } else {
                     None
                 },
             })),
             TypeDefKind::List(inner) => TypeDef::List(Box::new(
-                printer.print_type_def_ref(&inner, resolve, &printer),
+                // printer.print_type_def_ref(&inner, resolve, &printer),
+                DocTypeRef::from_type(*inner, printer, resolve),
             )),
             TypeDefKind::Future(_) => TypeDef::Future,
             TypeDefKind::Stream(_) => TypeDef::Stream,
             TypeDefKind::Type(inner) => TypeDef::Type(Box::new(
-                printer.print_type_def_ref(&inner, resolve, &printer),
+                // printer.print_type_def_ref(&inner, resolve, &printer),
+                DocTypeRef::from_type(*inner, printer, resolve),
             )),
             TypeDefKind::Unknown => TypeDef::Unknown,
         }
@@ -939,7 +996,10 @@ impl DocsPrinter {
             },
             TypeDefKind::Handle(_) => unreachable!(),
             TypeDefKind::Option(ty) => DocType {
-                kind: TypeDef::Option(Box::new(self.print_type_def_ref(&ty, resolve, &self))),
+                kind: TypeDef::Option(Box::new(
+                    DocTypeRef::from_type(ty, self, resolve),
+                    // self.print_type_def_ref(&ty, resolve, &self),
+                )),
                 owner: None,
                 name: type_def.name.clone(),
                 docs: type_def.docs.contents.clone(),
@@ -955,12 +1015,14 @@ impl DocsPrinter {
                 DocType {
                     kind: TypeDef::Result(Box::new(ResultTypes {
                         ok: if let Some(ok_ty) = &ok {
-                            Some(self.print_type_def_ref(ok_ty, resolve, &self))
+                            // Some(self.print_type_def_ref(ok_ty, resolve, &self))
+                            Some(DocTypeRef::from_type(*ok_ty, self, resolve))
                         } else {
                             None
                         },
                         error: if let Some(err_ty) = &err {
-                            Some(self.print_type_def_ref(err_ty, resolve, &self))
+                            // Some(self.print_type_def_ref(err_ty, resolve, &self))
+                            Some(DocTypeRef::from_type(*err_ty, self, resolve))
                         } else {
                             None
                         },
@@ -971,7 +1033,8 @@ impl DocsPrinter {
                 }
             }
             TypeDefKind::List(ty) => DocType {
-                kind: TypeDef::List(Box::new(self.print_type_def_ref(&ty, resolve, &self))),
+                // kind: TypeDef::List(Box::new(self.print_type_def_ref(&ty, resolve, &self))),
+                kind: TypeDef::List(Box::new(DocTypeRef::from_type(ty, self, resolve))),
                 owner: None,
                 name: type_def.name.clone(),
                 docs: type_def.docs.contents.clone(),
@@ -1315,18 +1378,24 @@ impl DocsPrinter {
                             let ty = &resolve.types[*id];
                             let owner = self.print_owner(ty.owner, resolve);
                             DocType {
-                                kind: TypeDef::Option(Box::new(
-                                    self.print_type_def_ref(&option_ty, resolve, &self),
-                                )),
+                                // kind: TypeDef::Option(Box::new(
+                                kind: TypeDef::Option(Box::new(DocTypeRef::from_type(
+                                    *option_ty, self, resolve,
+                                ))),
+                                // self.print_type_def_ref(&option_ty, resolve, &self),
+                                // )),
                                 owner: owner.clone(),
                                 name: None,
                                 docs: ty.docs.contents.clone(),
                             }
                         }
                         _ => DocType {
-                            kind: TypeDef::Option(Box::new(
-                                self.print_type_def_ref(&option_ty, resolve, &self),
-                            )),
+                            // kind: TypeDef::Option(Box::new(
+                            //     self.print_type_def_ref(&option_ty, resolve, &self),
+                            // )),
+                            kind: TypeDef::Option(Box::new(DocTypeRef::from_type(
+                                *option_ty, self, resolve,
+                            ))),
                             owner,
                             name: name.clone(),
                             docs: ty.docs.contents.clone(),
@@ -1383,12 +1452,14 @@ impl DocsPrinter {
                         DocType {
                             kind: TypeDef::Result(Box::new(ResultTypes {
                                 ok: if let Some(ok_ty) = &ok {
-                                    Some(self.print_type_def_ref(ok_ty, resolve, &self))
+                                    // Some(self.print_type_def_ref(ok_ty, resolve, &self))
+                                    Some(DocTypeRef::from_type(*ok_ty, self, resolve))
                                 } else {
                                     None
                                 },
                                 error: if let Some(err_ty) = &err {
-                                    Some(self.print_type_def_ref(err_ty, resolve, &self))
+                                    // Some(self.print_type_def_ref(err_ty, resolve, &self))
+                                    Some(DocTypeRef::from_type(*err_ty, self, resolve))
                                 } else {
                                     None
                                 },
@@ -1399,9 +1470,12 @@ impl DocsPrinter {
                         }
                     }
                     TypeDefKind::List(list_ty) => DocType {
-                        kind: TypeDef::List(Box::new(
-                            self.print_type_def_ref(&list_ty, resolve, &self),
-                        )),
+                        // kind: TypeDef::List(Box::new(
+                        //   self.print_type_def_ref(&list_ty, resolve, &self),
+                        // )),
+                        kind: TypeDef::Option(Box::new(DocTypeRef::from_type(
+                            *list_ty, self, resolve,
+                        ))),
                         owner: None,
                         name,
                         docs: ty.docs.contents.clone(),
@@ -1437,200 +1511,207 @@ impl DocsPrinter {
         }
     }
 
-    fn print_type_def_ref(
-        &self,
-        ty: &Type,
-        resolve: &Resolve,
-        printer: &DocsPrinter,
-    ) -> DocTypeRef {
-        match ty {
-            Type::Bool => DocTypeRef {
-                name: None,
-                owner: None,
-                docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Bool))),
-            },
-            Type::U8 => DocTypeRef {
-                name: None,
-                owner: None,
-                docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U8))),
-            },
-            Type::U16 => DocTypeRef {
-                name: None,
-                owner: None,
-                docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U16))),
-            },
-            Type::U32 => DocTypeRef {
-                name: None,
-                owner: None,
-                docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U32))),
-            },
-            Type::U64 => DocTypeRef {
-                name: None,
-                owner: None,
-                docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U64))),
-            },
-            Type::S8 => DocTypeRef {
-                name: None,
-                owner: None,
-                docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S8))),
-            },
-            Type::S16 => DocTypeRef {
-                name: None,
-                owner: None,
-                docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S16))),
-            },
-            Type::S32 => DocTypeRef {
-                name: None,
-                owner: None,
-                docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S32))),
-            },
-            Type::S64 => DocTypeRef {
-                name: None,
-                owner: None,
-                docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S64))),
-            },
-            Type::F32 => DocTypeRef {
-                name: None,
-                owner: None,
-                docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::F32))),
-            },
-            Type::F64 => DocTypeRef {
-                name: None,
-                owner: None,
-                docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::F64))),
-            },
-            Type::Char => DocTypeRef {
-                name: None,
-                owner: None,
-                docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Char))),
-            },
-            Type::String => DocTypeRef {
-                name: None,
-                owner: None,
-                docs: None,
-                ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::String))),
-            },
-            Type::Id(id) => {
-                let inner = &resolve.types[*id];
-                let owner = printer.print_owner(inner.owner, resolve);
-                match inner.kind {
-                    TypeDefKind::Record(_) => {
-                        return DocTypeRef {
-                            name: inner.name.clone(),
-                            owner,
-                            docs: inner.docs.contents.clone(),
-                            ty: None,
-                        };
-                    }
-                    TypeDefKind::Resource => DocTypeRef {
-                        name: inner.name.clone(),
-                        owner,
-                        docs: inner.docs.contents.clone(),
-                        ty: None,
-                    },
-                    TypeDefKind::Handle(_) => {
-                        return DocTypeRef::from_type(*ty, self, resolve);
-                    }
-                    TypeDefKind::Flags(_) => {
-                        return DocTypeRef {
-                            name: inner.name.clone(),
-                            owner,
-                            docs: inner.docs.contents.clone(),
-                            ty: None,
-                        };
-                    }
-                    TypeDefKind::Tuple(_) => {
-                        return DocTypeRef::from_type(*ty, self, resolve);
-                    }
-                    TypeDefKind::Variant(_) => {
-                        return DocTypeRef {
-                            name: inner.name.clone(),
-                            owner,
-                            docs: inner.docs.contents.clone(),
-                            ty: None,
-                        };
-                    }
-                    TypeDefKind::Enum(_) => {
-                        return DocTypeRef {
-                            name: inner.name.clone(),
-                            owner: owner.clone(),
-                            docs: inner.docs.contents.clone(),
-                            ty: None,
-                        };
-                    }
-                    TypeDefKind::Option(_) => {
-                        return DocTypeRef::from_type(*ty, self, resolve);
-                    }
-                    TypeDefKind::Result(Result_ { ok, err }) => {
-                        return DocTypeRef {
-                            name: None,
-                            owner: None,
-                            docs: None,
-                            ty: Some(TypeDef::Result(Box::new(ResultTypes {
-                                ok: if let Some(ok_ty) = &ok {
-                                    Some(printer.print_type_def_ref(ok_ty, resolve, printer))
-                                } else {
-                                    None
-                                },
-                                error: if let Some(err_ty) = &err {
-                                    Some(printer.print_type_def_ref(err_ty, resolve, printer))
-                                } else {
-                                    None
-                                },
-                            }))),
-                        };
-                    }
-                    TypeDefKind::List(inner_ty) => {
-                        if let Some(list_name) = &inner.name {
-                            return DocTypeRef {
-                                name: Some(list_name.clone()),
-                                owner: owner.clone(),
-                                docs: inner.docs.contents.clone(),
-                                ty: Some(TypeDef::Type(Box::new(DocTypeRef {
-                                    name: Some(list_name.clone()),
-                                    owner: owner.clone(),
-                                    docs: inner.docs.contents.clone(),
-                                    ty: None,
-                                }))),
-                            };
-                        } else {
-                            return DocTypeRef {
-                                name: None,
-                                owner: None,
-                                docs: None,
-                                ty: Some(TypeDef::List(Box::new(
-                                    printer.print_type_def_ref(&inner_ty, resolve, self),
-                                ))),
-                            };
-                        }
-                    }
-                    TypeDefKind::Future(_) => unreachable!(),
-                    TypeDefKind::Stream(_) => unreachable!(),
-                    TypeDefKind::Type(_) => {
-                        return DocTypeRef {
-                            name: inner.name.clone(),
-                            owner: owner.clone(),
-                            docs: inner.docs.contents.clone(),
-                            ty: None,
-                        };
-                    }
-                    TypeDefKind::Unknown => unreachable!(),
-                }
-            }
-        }
-    }
+    // fn print_type_def_ref(
+    //     &self,
+    //     ty: &Type,
+    //     resolve: &Resolve,
+    //     printer: &DocsPrinter,
+    // ) -> DocTypeRef {
+    //     match ty {
+    //         Type::Bool => DocTypeRef {
+    //             name: None,
+    //             owner: None,
+    //             docs: None,
+    //             ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Bool))),
+    //         },
+    //         Type::U8 => DocTypeRef {
+    //             name: None,
+    //             owner: None,
+    //             docs: None,
+    //             ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U8))),
+    //         },
+    //         Type::U16 => DocTypeRef {
+    //             name: None,
+    //             owner: None,
+    //             docs: None,
+    //             ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U16))),
+    //         },
+    //         Type::U32 => DocTypeRef {
+    //             name: None,
+    //             owner: None,
+    //             docs: None,
+    //             ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U32))),
+    //         },
+    //         Type::U64 => DocTypeRef {
+    //             name: None,
+    //             owner: None,
+    //             docs: None,
+    //             ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::U64))),
+    //         },
+    //         Type::S8 => DocTypeRef {
+    //             name: None,
+    //             owner: None,
+    //             docs: None,
+    //             ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S8))),
+    //         },
+    //         Type::S16 => DocTypeRef {
+    //             name: None,
+    //             owner: None,
+    //             docs: None,
+    //             ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S16))),
+    //         },
+    //         Type::S32 => DocTypeRef {
+    //             name: None,
+    //             owner: None,
+    //             docs: None,
+    //             ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S32))),
+    //         },
+    //         Type::S64 => DocTypeRef {
+    //             name: None,
+    //             owner: None,
+    //             docs: None,
+    //             ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::S64))),
+    //         },
+    //         Type::F32 => DocTypeRef {
+    //             name: None,
+    //             owner: None,
+    //             docs: None,
+    //             ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::F32))),
+    //         },
+    //         Type::F64 => DocTypeRef {
+    //             name: None,
+    //             owner: None,
+    //             docs: None,
+    //             ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::F64))),
+    //         },
+    //         Type::Char => DocTypeRef {
+    //             name: None,
+    //             owner: None,
+    //             docs: None,
+    //             ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::Char))),
+    //         },
+    //         Type::String => DocTypeRef {
+    //             name: None,
+    //             owner: None,
+    //             docs: None,
+    //             ty: Some(TypeDef::Primitive(Box::new(DocPrimitive::String))),
+    //         },
+    //         Type::Id(id) => {
+    //             let inner = &resolve.types[*id];
+    //             let owner = printer.print_owner(inner.owner, resolve);
+    //             match inner.kind {
+    //                 TypeDefKind::Record(_) => {
+    //                     return DocTypeRef {
+    //                         name: inner.name.clone(),
+    //                         owner,
+    //                         docs: inner.docs.contents.clone(),
+    //                         ty: None,
+    //                     };
+    //                 }
+    //                 TypeDefKind::Resource => DocTypeRef {
+    //                     name: inner.name.clone(),
+    //                     owner,
+    //                     docs: inner.docs.contents.clone(),
+    //                     ty: None,
+    //                 },
+    //                 TypeDefKind::Handle(_) => {
+    //                     return DocTypeRef::from_type(*ty, self, resolve);
+    //                 }
+    //                 TypeDefKind::Flags(_) => {
+    //                     return DocTypeRef {
+    //                         name: inner.name.clone(),
+    //                         owner,
+    //                         docs: inner.docs.contents.clone(),
+    //                         ty: None,
+    //                     };
+    //                 }
+    //                 TypeDefKind::Tuple(_) => {
+    //                     return DocTypeRef::from_type(*ty, self, resolve);
+    //                 }
+    //                 TypeDefKind::Variant(_) => {
+    //                     return DocTypeRef {
+    //                         name: inner.name.clone(),
+    //                         owner,
+    //                         docs: inner.docs.contents.clone(),
+    //                         ty: None,
+    //                     };
+    //                 }
+    //                 TypeDefKind::Enum(_) => {
+    //                     return DocTypeRef {
+    //                         name: inner.name.clone(),
+    //                         owner: owner.clone(),
+    //                         docs: inner.docs.contents.clone(),
+    //                         ty: None,
+    //                     };
+    //                 }
+    //                 TypeDefKind::Option(_) => {
+    //                     return DocTypeRef::from_type(*ty, self, resolve);
+    //                 }
+    //                 TypeDefKind::Result(Result_ { ok, err }) => {
+    //                     return DocTypeRef {
+    //                         name: None,
+    //                         owner: None,
+    //                         docs: None,
+    //                         ty: Some(TypeDef::Result(Box::new(ResultTypes {
+    //                             ok: if let Some(ok_ty) = &ok {
+    //                                 Some(printer.print_type_def_ref(ok_ty, resolve, printer))
+    //                             } else {
+    //                                 None
+    //                             },
+    //                             error: if let Some(err_ty) = &err {
+    //                                 Some(printer.print_type_def_ref(err_ty, resolve, printer))
+    //                             } else {
+    //                                 None
+    //                             },
+    //                         }))),
+    //                     };
+    //                 }
+    //                 TypeDefKind::List(inner_ty) => {
+    //                     if let Some(inner_name) = &inner.name {
+    //                         return DocTypeRef {
+    //                             name: Some(inner_name.clone()),
+    //                             owner: owner.clone(),
+    //                             docs: inner.docs.contents.clone(),
+    //                             ty: Some(TypeDef::Type(Box::new(DocTypeRef {
+    //                                 name: Some(inner_name.clone()),
+    //                                 owner: owner.clone(),
+    //                                 docs: inner.docs.contents.clone(),
+    //                                 ty: None,
+    //                             }))),
+    //                         };
+    //                     } else {
+    //                         return DocTypeRef {
+    //                             name: None,
+    //                             owner: None,
+    //                             docs: None,
+    //                             ty: Some(TypeDef::List(Box::new(DocTypeRef {
+    //                                 name: None,
+    //                                 owner: None,
+    //                                 docs: None,
+    //                                 ty: Some(TypeDef::from_type(
+    //                                     &inner_ty,
+    //                                     Some(self),
+    //                                     Some(resolve),
+    //                                 )),
+    //                             }))),
+    //                         };
+    //                     }
+    //                 }
+    //                 TypeDefKind::Future(_) => unreachable!(),
+    //                 TypeDefKind::Stream(_) => unreachable!(),
+    //                 TypeDefKind::Type(_) => {
+    //                     return DocTypeRef {
+    //                         name: inner.name.clone(),
+    //                         owner: owner.clone(),
+    //                         docs: inner.docs.contents.clone(),
+    //                         ty: None,
+    //                     };
+    //                 }
+    //                 TypeDefKind::Unknown => unreachable!(),
+    //             }
+    //         }
+    //     }
+    // }
 
     fn print_function(
         &mut self,
@@ -1648,7 +1729,8 @@ impl DocsPrinter {
         for (name, ty) in func.params.iter().skip(params_to_skip) {
             params.push(Param {
                 name: name.clone(),
-                ty: self.print_type_def_ref(ty, resolve, &self),
+                // ty: self.print_type_def_ref(ty, resolve, &self),
+                ty: DocTypeRef::from_type(*ty, &self, resolve),
             });
         }
 
@@ -1659,7 +1741,8 @@ impl DocsPrinter {
                     for (name, ty) in rs.iter() {
                         ret.push(FuncResult {
                             name: name.clone(),
-                            ty: self.print_type_def_ref(ty, resolve, &self),
+                            // ty: self.print_type_def_ref(ty, resolve, &self),
+                            ty: DocTypeRef::from_type(*ty, &self, resolve),
                         });
                     }
                 }
@@ -1667,7 +1750,8 @@ impl DocsPrinter {
             Results::Anon(ty) => {
                 ret.push(FuncResult {
                     name: "".to_string(),
-                    ty: self.print_type_def_ref(ty, resolve, &self),
+                    // ty: self.print_type_def_ref(ty, resolve, &self),
+                    ty: DocTypeRef::from_type(*ty, &self, resolve),
                 });
             }
         }
@@ -2210,7 +2294,8 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                             TypeDefKind::Option(inner) => {
                                 printing_pkg.type_defs.doc_types.push(DocType {
                                     kind: TypeDef::Option(Box::new(
-                                        printer.print_type_def_ref(&inner, resolve, &printer),
+                                        // printer.print_type_def_ref(&inner, resolve, &printer),
+                                        DocTypeRef::from_type(*inner, &printer, resolve),
                                     )),
                                     owner: None,
                                     name: type_def.name.clone(),
@@ -2222,16 +2307,18 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                                     kind: TypeDef::Result(Box::new(ResultTypes {
                                         ok: if let Some(ok_ty) = &ok {
                                             Some(
-                                                printer
-                                                    .print_type_def_ref(ok_ty, resolve, &printer),
+                                                // printer
+                                                //     .print_type_def_ref(ok_ty, resolve, &printer),
+                                                DocTypeRef::from_type(*ok_ty, &printer, resolve),
                                             )
                                         } else {
                                             None
                                         },
                                         error: if let Some(err_ty) = &err {
                                             Some(
-                                                printer
-                                                    .print_type_def_ref(err_ty, resolve, &printer),
+                                                // printer
+                                                //     .print_type_def_ref(err_ty, resolve, &printer),
+                                                DocTypeRef::from_type(*err_ty, &printer, resolve),
                                             )
                                         } else {
                                             None
@@ -2245,7 +2332,8 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                             TypeDefKind::List(ty) => {
                                 printing_pkg.type_defs.doc_types.push(DocType {
                                     kind: TypeDef::List(Box::new(
-                                        printer.print_type_def_ref(&ty, resolve, &printer),
+                                        // printer.print_type_def_ref(&ty, resolve, &printer),
+                                        DocTypeRef::from_type(*ty, &printer, resolve),
                                     )),
                                     owner: None,
                                     name: type_def.name.clone(),
