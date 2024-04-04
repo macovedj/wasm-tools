@@ -169,7 +169,7 @@ enum TypeDef {
     Flags(Vec<Flag>),
     Tuple(Box<Vec<DocTypeRef>>),
     Variant(Box<Vec<DocTypeRef>>),
-    Enum(Vec<String>),
+    Enum(Vec<EnumCase>),
     Option(Box<DocTypeRef>),
     Result(Box<ResultTypes>),
     List(Box<DocTypeRef>),
@@ -177,6 +177,13 @@ enum TypeDef {
     Stream,
     Type(Box<DocTypeRef>),
     Unknown,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+struct EnumCase {
+    name: String,
+    docs: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -340,26 +347,44 @@ impl DocTypeRef {
                         ty: None,
                     },
                     TypeDefKind::Tuple(Tuple { types }) => {
-                        let mut type_refs = Vec::new();
-                        for ty in types {
-                            let type_ref = if let Type::Id(id) = ty {
-                                let inner = &resolve.types[id];
-                                DocTypeRef {
-                                    name: inner.name.clone(),
-                                    owner: printer.print_owner(inner.owner, resolve),
-                                    docs: inner.docs.contents.clone(),
+                        if let Some(name) = &ty.name {
+                            return Self {
+                                name: Some(name.clone()),
+                                owner: printer.print_owner(ty.owner, resolve),
+                                docs: ty.docs.contents.clone(),
+                                ty: Some(TypeDef::Type(Box::new(DocTypeRef {
+                                    name: Some(name.clone()),
+                                    owner: printer.print_owner(ty.owner, resolve),
+                                    docs: ty.docs.contents.clone(),
                                     ty: None,
-                                }
-                            } else {
-                                DocTypeRef::from_type(ty, printer, resolve)
+                                }))),
                             };
-                            type_refs.push(type_ref);
-                        }
-                        Self {
-                            name: ty.name.clone(),
-                            owner: printer.print_owner(ty.owner, resolve),
-                            docs: ty.docs.contents.clone(),
-                            ty: None,
+                        } else {
+                            let mut type_refs = Vec::new();
+                            for ty in types {
+                                let type_ref = if let Type::Id(id) = ty {
+                                    let inner = &resolve.types[id];
+                                    if let Some(_) = inner.name.clone() {
+                                        DocTypeRef {
+                                            name: inner.name.clone(),
+                                            owner: printer.print_owner(inner.owner, resolve),
+                                            docs: inner.docs.contents.clone(),
+                                            ty: None,
+                                        }
+                                    } else {
+                                        DocTypeRef::from_type(ty, printer, resolve)
+                                    }
+                                } else {
+                                    DocTypeRef::from_type(ty, printer, resolve)
+                                };
+                                type_refs.push(type_ref);
+                            }
+                            Self {
+                                name: ty.name.clone(),
+                                owner: printer.print_owner(ty.owner, resolve),
+                                docs: ty.docs.contents.clone(),
+                                ty: Some(TypeDef::Tuple(Box::new(type_refs))),
+                            }
                         }
                     }
                     TypeDefKind::Variant(_) => Self {
@@ -453,7 +478,7 @@ impl DocTypeRef {
                                     };
                                 }
                             } else {
-                                return DocTypeRef {
+                                return Self {
                                     name: None,
                                     owner: None,
                                     docs: None,
@@ -629,9 +654,15 @@ impl TypeDef {
                 }
                 TypeDef::Variant(Box::new(doc_cases))
             }
-            TypeDefKind::Enum(Enum { cases }) => {
-                TypeDef::Enum(cases.into_iter().map(|case| case.name.clone()).collect())
-            }
+            TypeDefKind::Enum(Enum { cases }) => TypeDef::Enum(
+                cases
+                    .into_iter()
+                    .map(|case| EnumCase {
+                        name: case.name.clone(),
+                        docs: case.docs.contents.clone(),
+                    })
+                    .collect(),
+            ),
             TypeDefKind::Option(inner) => TypeDef::Option(Box::new(
                 // printer.print_type_def_ref(inner, resolve, printer),
                 DocTypeRef::from_type(*inner, printer, resolve),
@@ -970,7 +1001,10 @@ impl DocsPrinter {
                 let mut case_types = Vec::new();
                 let mut doc_cases = Vec::new();
                 for case in cases {
-                    doc_cases.push(case.name.clone());
+                    doc_cases.push(EnumCase {
+                        name: case.name.clone(),
+                        docs: case.docs.contents.clone(),
+                    });
                     case_types.push(DocType {
                         kind: TypeDef::Primitive(Box::new(DocPrimitive::Bool)),
                         owner: None,
@@ -1358,7 +1392,10 @@ impl DocsPrinter {
                         let mut case_types = Vec::new();
                         let mut doc_cases = Vec::new();
                         for case in cases {
-                            doc_cases.push(case.name.clone());
+                            doc_cases.push(EnumCase {
+                                name: case.name.clone(),
+                                docs: case.docs.contents.clone(),
+                            });
                             case_types.push(DocType {
                                 kind: TypeDef::Primitive(Box::new(DocPrimitive::Bool)),
                                 owner: None,
@@ -2276,7 +2313,10 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                                 let mut case_types = Vec::new();
                                 let mut doc_cases = Vec::new();
                                 for case in cases {
-                                    doc_cases.push(case.name.clone());
+                                    doc_cases.push(EnumCase {
+                                        name: case.name.clone(),
+                                        docs: case.docs.contents.clone(),
+                                    });
                                     case_types.push(DocType {
                                         name: Some(case.name.clone()),
                                         kind: TypeDef::Primitive(Box::new(DocPrimitive::Bool)),
@@ -2293,10 +2333,9 @@ pub fn print_docs(decoded: &DecodedWasm) -> String {
                             }
                             TypeDefKind::Option(inner) => {
                                 printing_pkg.type_defs.doc_types.push(DocType {
-                                    kind: TypeDef::Option(Box::new(
-                                        // printer.print_type_def_ref(&inner, resolve, &printer),
-                                        DocTypeRef::from_type(*inner, &printer, resolve),
-                                    )),
+                                    kind: TypeDef::Option(Box::new(DocTypeRef::from_type(
+                                        *inner, &printer, resolve,
+                                    ))),
                                     owner: None,
                                     name: type_def.name.clone(),
                                     docs: type_def.docs.contents.clone(),
