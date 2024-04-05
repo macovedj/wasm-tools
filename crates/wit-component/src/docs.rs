@@ -126,7 +126,7 @@ pub enum WorldItem {
     /// Interface type in a world.
     Interface,
     /// Function type defined in a world.
-    Function((Vec<Param>, Vec<FuncResult>)),
+    Func((Vec<Param>, Vec<FuncResult>)),
     /// Type defined in a world.
     Type(DocType),
 }
@@ -1713,7 +1713,7 @@ fn print_world(resolve: &Resolve, id: WorldId) -> World {
                 let printing_func = print_function(resolve, func);
                 printing_world
                     .imports
-                    .push((Some(func.name.clone()), WorldItem::Function(printing_func)));
+                    .push((Some(func.name.clone()), WorldItem::Func(printing_func)));
             }
             wit_parser::WorldItem::Type(id) => {
                 let doc_ty = render_type(resolve, id, &resource_funcs);
@@ -1763,7 +1763,7 @@ fn print_world(resolve: &Resolve, id: WorldId) -> World {
                 let printing_func = print_function(resolve, func);
                 printing_world
                     .exports
-                    .push((Some(func.name.clone()), WorldItem::Function(printing_func)));
+                    .push((Some(func.name.clone()), WorldItem::Func(printing_func)));
             }
             wit_parser::WorldItem::Type(id) => {
                 let doc_ty = render_type(resolve, id, &resource_funcs);
