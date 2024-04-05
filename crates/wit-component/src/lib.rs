@@ -9,6 +9,8 @@ use anyhow::{bail, Result};
 use wasm_encoder::{CanonicalOption, Encode, Section};
 use wit_parser::{Resolve, WorldId};
 
+/// enables decoding
+// pub mod decoding;
 mod encoding;
 mod gc;
 mod linking;
@@ -16,10 +18,13 @@ mod printing;
 mod targets;
 mod validation;
 
+// pub use decoding::{decode, decode_reader, ComponentInfoParser, DecodedWasm};
 pub use encoding::{encode, ComponentEncoder};
 pub use linking::Linker;
 pub use printing::*;
 pub use targets::*;
+/// Prints docs json from wit file
+pub mod docs;
 pub use wit_parser::decoding::{decode, decode_reader, DecodedWasm};
 
 pub mod metadata;
