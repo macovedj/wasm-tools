@@ -1814,8 +1814,8 @@ fn print_interface(resolve: &Resolve, id: InterfaceId) -> Iface {
     Iface { type_defs, funcs }
 }
 
-/// Print JSON with info for rendering docs
-pub fn print_json(decoded: &DecodedWasm) -> PackageInfo {
+/// Process package info rendering docs
+pub fn package_info(decoded: &DecodedWasm) -> PackageInfo {
     let pkg_id = decoded.package();
     match decoded {
         DecodedWasm::WitPackage(resolve, package_id) => {

@@ -2477,7 +2477,6 @@ dependencies = [
  "pretty_assertions",
  "serde",
  "serde_derive",
- "serde_json",
  "wasm-encoder 0.202.0",
  "wasm-metadata",
  "wasmparser 0.202.0",
