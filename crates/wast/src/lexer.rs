@@ -1087,6 +1087,7 @@ fn to_hex(c: char) -> u8 {
 impl fmt::Display for LexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use LexError::*;
+        dbg!("LEX ERROR");
         match self {
             DanglingBlockComment => f.write_str("unterminated block comment")?,
             Unexpected(c) => write!(f, "unexpected character '{}'", escape_char(*c))?,

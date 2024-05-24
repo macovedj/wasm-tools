@@ -3,6 +3,7 @@ use anyhow::{anyhow, bail};
 use indexmap::IndexSet;
 use std::mem;
 use std::{collections::HashMap, io::Read};
+use wasmparser::names::InterfaceName;
 use wasmparser::Chunk;
 use wasmparser::{
     names::{ComponentName, ComponentNameKind},
@@ -859,11 +860,24 @@ impl WitPackageDecoder<'_> {
     /// ensure that there's an `InterfaceId` corresponding to its components.
     fn extract_dep_interface(&mut self, name_string: &str) -> Result<InterfaceId> {
         let name = ComponentName::new(name_string, 0).unwrap();
-        let name = match name.kind() {
-            ComponentNameKind::Interface(name) => name,
+        dbg!("GOT NAME");
+        // let package_name = name.to_package_name();
+        let package_name = match name.kind() {
+            // ComponentNameKind::Interface(_) => todo!(),
+            ComponentNameKind::Interface(name) => name.to_package_name(),
+            ComponentNameKind::Dependency(name) => PackageName {
+                namespace: name.namespace().to_string(),
+                name: name.package().to_string(),
+                version: None,
+            },
             _ => bail!("package name is not a valid id: {name_string}"),
         };
-        let package_name = name.to_package_name();
+        let name = match name.kind() {
+            ComponentNameKind::Interface(name) => name,
+            ComponentNameKind::Dependency(name) => InterfaceName(name.0),
+            _ => bail!("package name is not a valid id: {name_string}"),
+        };
+        dbg!(&package_name);
         // Lazily create a `Package` as necessary, along with the interface.
         let package = self
             .foreign_packages
@@ -1755,6 +1769,7 @@ pub(crate) trait InterfaceNameExt {
 
 impl InterfaceNameExt for wasmparser::names::InterfaceName<'_> {
     fn to_package_name(&self) -> PackageName {
+        dbg!(&self);
         PackageName {
             namespace: self.namespace().to_string(),
             name: self.package().to_string(),

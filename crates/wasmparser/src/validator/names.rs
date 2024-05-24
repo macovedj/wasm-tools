@@ -514,7 +514,7 @@ impl<'a> ResourceFunc<'a> {
 
 /// An interface name, stored as `a:b/c@1.2.3`
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub struct InterfaceName<'a>(&'a str);
+pub struct InterfaceName<'a>(pub &'a str);
 
 impl<'a> InterfaceName<'a> {
     /// Returns the entire underlying string.
@@ -559,12 +559,29 @@ impl<'a> InterfaceName<'a> {
 /// A dependency on an implementation either as `locked-dep=...` or
 /// `unlocked-dep=...`
 #[derive(Debug, Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
-pub struct DependencyName<'a>(&'a str);
+pub struct DependencyName<'a>(pub &'a str);
 
 impl<'a> DependencyName<'a> {
     /// Returns entire underlying import string
     pub fn as_str(&self) -> &'a str {
         self.0
+    }
+
+    /// Returns the `a:b` in `a:b:c/d/e`
+    pub fn namespace(&self) -> &'a KebabStr {
+        let colon = self.0.rfind(':').unwrap();
+        KebabStr::new_unchecked(&self.0[..colon])
+    }
+
+    /// Returns the `c` in `a:b:c/d/e`
+    pub fn package(&self) -> &'a KebabStr {
+        let colon = self.0.rfind(':').unwrap();
+        let slash = self.0.find('/').unwrap();
+        KebabStr::new_unchecked(&self.0[colon + 1..slash])
+    }
+
+    fn interface(&self) -> String {
+        "foo".to_string()
     }
 }
 
