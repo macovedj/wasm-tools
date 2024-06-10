@@ -490,6 +490,7 @@ impl Resolve {
                                 WorldItem::Function(f) => remap.update_function(self, f, None)?,
                                 WorldItem::Interface(i) => *i = remap.interfaces[i.index()],
                                 WorldItem::Type(i) => *i = remap.types[i.index()],
+                                WorldItem::UnlockedDep(_) => {}
                             }
                             map.insert(name, item);
                         }
@@ -497,6 +498,7 @@ impl Resolve {
                     };
                     update(&mut world.imports)?;
                     update(&mut world.exports)?;
+                    update(&mut world.unlocked_deps)?;
                     self.worlds.alloc(world)
                 }
             };
@@ -786,6 +788,7 @@ impl Resolve {
         match key {
             WorldKey::Name(s) => s.to_string(),
             WorldKey::Interface(i) => self.id_of(*i).expect("unexpected anonymous interface"),
+            WorldKey::UnlockedDep(u) => u.to_string(),
         }
     }
 
@@ -852,6 +855,7 @@ impl Resolve {
                         WorldItem::Interface(id) => Some(*id),
                         WorldItem::Function(_) => None,
                         WorldItem::Type(t) => self.type_interface_dep(*t),
+                        WorldItem::UnlockedDep(_) => None,
                     })
             }))
             .filter_map(move |iface_id| {
@@ -960,6 +964,7 @@ impl Resolve {
                             assert_eq!(ty.owner, TypeOwner::World(id));
                         }
                     }
+                    WorldItem::UnlockedDep(_) => {}
                 }
             }
             world_types.push(types);
@@ -1187,11 +1192,14 @@ impl Remap {
         }
         for id in self.worlds.iter().skip(foreign_worlds) {
             let world = &mut resolve.worlds[*id];
-            world.package = Some(pkgid);
-            let prev = resolve.packages[pkgid]
-                .worlds
-                .insert(world.name.clone(), *id);
-            assert!(prev.is_none());
+            // dbg!(&world.name);
+            if world.name.len() > 0 {
+                world.package = Some(pkgid);
+                let prev = resolve.packages[pkgid]
+                    .worlds
+                    .insert(world.name.clone(), *id);
+                assert!(prev.is_none());
+            }
         }
         Ok(pkgid)
     }
@@ -1222,6 +1230,7 @@ impl Remap {
                         );
                         assert!(prev.is_none());
                     }
+                    AstItem::UnlockedDep(_) => {}
                 }
             }
         }
@@ -1557,7 +1566,10 @@ impl Remap {
         // knowledge of all interfaces a worlds imports, for example, are
         // expanded fully to ensure that all transitive items are necessarily
         // imported.
-        assert_eq!(world.imports.len(), spans.imports.len());
+        assert_eq!(
+            world.imports.len() + world.unlocked_deps.len(),
+            spans.imports.len()
+        );
         assert_eq!(world.exports.len(), spans.exports.len());
 
         // First up, process all the `imports` of the world. Note that this
@@ -1587,6 +1599,7 @@ impl Remap {
                     let id = self.types[id.index()];
                     import_types.push((name.unwrap_name(), id, *span));
                 }
+                WorldItem::UnlockedDep(_) => todo!(),
             }
         }
 
@@ -1617,14 +1630,19 @@ impl Remap {
                     let name = match name {
                         WorldKey::Name(name) => name,
                         WorldKey::Interface(_) => unreachable!(),
+                        WorldKey::UnlockedDep(_) => todo!(),
                     };
                     export_funcs.push((name, f, *span));
                 }
                 WorldItem::Type(_) => unreachable!(),
+                WorldItem::UnlockedDep(_) => {}
             }
         }
 
         self.add_world_exports(resolve, world, &export_interfaces)?;
+        for (key, unlocked) in mem::take(&mut world.unlocked_deps) {
+            world.unlocked_deps.insert(key, unlocked);
+        }
 
         // Resolve all includes of the world
         assert_eq!(world.includes.len(), spans.includes.len());
@@ -1698,6 +1716,7 @@ impl Remap {
                 WorldItem::Type(_) => unreachable!(),
                 WorldItem::Function(_) => 0,
                 WorldItem::Interface(_) => 1,
+                WorldItem::UnlockedDep(_) => todo!(),
             };
             rank(a).cmp(&rank(b))
         });
@@ -1714,6 +1733,7 @@ impl Remap {
             WorldKey::Interface(id) => {
                 *id = self.interfaces[id.index()];
             }
+            WorldKey::UnlockedDep(_) => todo!(),
         }
     }
 
@@ -2227,6 +2247,7 @@ impl<'a> MergeMap<'a> {
             WorldKey::Interface(id) => {
                 WorldKey::Interface(self.interface_map.get(id).copied().unwrap_or(*id))
             }
+            WorldKey::UnlockedDep(_) => todo!(),
         }
     }
 
@@ -2264,6 +2285,7 @@ impl<'a> MergeMap<'a> {
                 let prev = self.type_map.insert(*from, *into);
                 assert!(prev.is_none());
             }
+            (WorldItem::UnlockedDep(_), _) => {}
 
             (WorldItem::Interface(_), _)
             | (WorldItem::Function(_), _)

@@ -41,6 +41,7 @@ pub fn validate_id(s: &str) -> Result<()> {
 }
 
 pub type WorldId = Id<World>;
+pub type UnlockedDepId = Id<UnlockedDep>;
 pub type InterfaceId = Id<Interface>;
 pub type TypeId = Id<TypeDef>;
 
@@ -116,11 +117,12 @@ pub struct UnresolvedPackage {
     required_resource_types: Vec<(TypeId, Span)>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct WorldSpan {
     span: Span,
     imports: Vec<Span>,
     exports: Vec<Span>,
+    unlocked_deps: Vec<Span>,
     includes: Vec<Span>,
 }
 
@@ -138,6 +140,8 @@ pub enum AstItem {
     Interface(InterfaceId),
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_id"))]
     World(WorldId),
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_id"))]
+    UnlockedDep(WorldId),
 }
 
 /// A structure used to keep track of the name of a package, containing optional
@@ -284,6 +288,10 @@ pub struct World {
     /// All exported items from this interface, both worlds and functions.
     pub exports: IndexMap<WorldKey, WorldItem>,
 
+    /// All exported items from this interface, both worlds and functions.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub unlocked_deps: IndexMap<WorldKey, WorldItem>,
+    // pub unlocked_deps: Vec<UnlockedDepId>,
     /// The package that owns this world.
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_optional_id"))]
     pub package: Option<PackageId>,
@@ -320,6 +328,8 @@ pub enum WorldKey {
     Name(String),
     /// An interface which is assigned no kebab-name.
     Interface(InterfaceId),
+    /// Unlocked dep
+    UnlockedDep(String),
 }
 
 impl From<WorldKey> for String {
@@ -327,6 +337,7 @@ impl From<WorldKey> for String {
         match key {
             WorldKey::Name(name) => name,
             WorldKey::Interface(id) => format!("interface-{}", id.index()),
+            WorldKey::UnlockedDep(_) => todo!(),
         }
     }
 }
@@ -338,6 +349,7 @@ impl WorldKey {
         match self {
             WorldKey::Name(name) => name,
             WorldKey::Interface(_) => panic!("expected a name, found interface"),
+            WorldKey::UnlockedDep(_) => todo!(),
         }
     }
 }
@@ -354,11 +366,22 @@ pub enum WorldItem {
     /// A function is being directly imported or exported from this world.
     Function(Function),
 
+    /// Unlocked Dependency
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_id"))]
+    UnlockedDep(WorldId),
+
     /// A type is being exported from this world.
     ///
     /// Note that types are never imported into worlds at this time.
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_id"))]
     Type(TypeId),
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct UnlockedDep {
+    #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Docs::is_empty"))]
+    pub docs: Docs,
 }
 
 #[derive(Debug, Clone)]

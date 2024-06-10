@@ -32,6 +32,7 @@ struct DecodingExport {
 enum Extern {
     Import(String),
     Export(DecodingExport),
+    UnlockedDep(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,7 +152,7 @@ impl ComponentInfo {
             return None;
         }
 
-        if !self.externs.iter().all(|(_, item)| {
+        if !self.externs.iter().all(|(name, item)| {
             let export = match item {
                 Extern::Export(e) => e,
                 _ => return false,
@@ -302,6 +303,7 @@ impl ComponentInfo {
             docs: Default::default(),
             imports: Default::default(),
             exports: Default::default(),
+            unlocked_deps: Default::default(),
             package: None,
             includes: Default::default(),
             include_names: Default::default(),
@@ -333,6 +335,7 @@ impl ComponentInfo {
                 Extern::Export(export) => {
                     decoder.decode_component_export(export, world, &mut fields)?
                 }
+                Extern::UnlockedDep(_) => todo!(),
             }
         }
 
@@ -1066,6 +1069,7 @@ impl WitPackageDecoder<'_> {
             docs: Default::default(),
             imports: Default::default(),
             exports: Default::default(),
+            unlocked_deps: Default::default(),
             includes: Default::default(),
             include_names: Default::default(),
             package: None,
@@ -1506,6 +1510,7 @@ impl WitPackageDecoder<'_> {
                 .filter_map(|item| match item {
                     WorldItem::Interface(id) => Some(*id),
                     WorldItem::Function(_) | WorldItem::Type(_) => None,
+                    WorldItem::UnlockedDep(_) => None,
                 }),
         );
         for iface in interfaces {

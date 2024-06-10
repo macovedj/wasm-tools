@@ -212,6 +212,15 @@ impl InterfaceEncoder<'_> {
         Ok(idx)
     }
 
+    fn encode_instance_from_world(&mut self) -> Result<u32> {
+        self.push_instance();
+        let instance = self.pop_instance();
+        let idx = self.outer.type_count();
+        self.outer.ty().instance(&instance);
+        self.instances += 1;
+        Ok(idx)
+    }
+
     fn push_instance(&mut self) {
         assert!(self.ty.is_none());
         assert!(self.saved_types.is_none());
@@ -368,6 +377,7 @@ pub fn encode_world(resolve: &Resolve, world_id: WorldId) -> Result<ComponentTyp
                 component.import_types = false;
                 continue;
             }
+            WorldItem::UnlockedDep(_) => todo!(),
         };
         component.outer.import(&name, ty);
     }
@@ -386,9 +396,23 @@ pub fn encode_world(resolve: &Resolve, world_id: WorldId) -> Result<ComponentTyp
                 let idx = component.encode_func_type(resolve, f)?;
                 ComponentTypeRef::Func(idx)
             }
-            WorldItem::Type(_) => unreachable!(),
+            WorldItem::Type(_) | WorldItem::UnlockedDep(_) => unreachable!(),
         };
         component.outer.export(&name, ty);
+    }
+
+    for (name, item) in world.unlocked_deps.iter() {
+        let name = resolve.name_world_key(name);
+        let ty = match item {
+            WorldItem::Interface(_) => todo!(),
+            WorldItem::Function(_) => todo!(),
+            WorldItem::UnlockedDep(_) => {
+                let idx = component.encode_instance_from_world()?;
+                ComponentTypeRef::Instance(idx)
+            }
+            WorldItem::Type(_) => todo!(),
+        };
+        component.outer.import(&name, ty);
     }
 
     Ok(component.outer)

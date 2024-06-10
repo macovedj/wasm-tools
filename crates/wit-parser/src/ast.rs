@@ -57,36 +57,45 @@ impl<'a> Ast<'a> {
                     let mut exports = Vec::new();
                     for item in world.items.iter() {
                         match item {
-                            WorldItem::Use(u) => {
-                                f(None, &u.from, Some(&u.names), WorldOrInterface::Interface)?
-                            }
+                            WorldItem::Use(u) => match &u.from {
+                                UsePath::Id(_) | UsePath::Package { .. } => {
+                                    f(None, &u.from, Some(&u.names), WorldOrInterface::Interface)?
+                                }
+                            },
                             WorldItem::Include(i) => {
                                 f(Some(&world.name), &i.from, None, WorldOrInterface::World)?
                             }
                             WorldItem::Type(_) => {}
                             WorldItem::Import(Import { kind, .. }) => imports.push(kind),
                             WorldItem::Export(Export { kind, .. }) => exports.push(kind),
+                            WorldItem::UnlockedDep(UnlockedDep { .. }) => {}
                         }
                     }
 
-                    let mut visit_kind = |kind: &'b ExternKind<'a>| match kind {
-                        ExternKind::Interface(_, items) => {
-                            for item in items {
-                                match item {
-                                    InterfaceItem::Use(u) => f(
-                                        None,
-                                        &u.from,
-                                        Some(&u.names),
-                                        WorldOrInterface::Interface,
-                                    )?,
-                                    _ => {}
+                    let mut visit_kind =
+                        |kind: &'b ExternKind<'a>| -> std::prelude::v1::Result<(), anyhow::Error> {
+                            match kind {
+                                ExternKind::Interface(_, items) => {
+                                    for item in items {
+                                        match item {
+                                            InterfaceItem::Use(u) => f(
+                                                None,
+                                                &u.from,
+                                                Some(&u.names),
+                                                WorldOrInterface::Interface,
+                                            )?,
+                                            _ => {}
+                                        }
+                                    }
+                                    Ok(())
                                 }
+                                ExternKind::Path(path) => {
+                                    f(None, path, None, WorldOrInterface::Interface)
+                                }
+                                ExternKind::Func(..) => Ok(()),
+                                ExternKind::UnlockedDep(_, _) => todo!(),
                             }
-                            Ok(())
-                        }
-                        ExternKind::Path(path) => f(None, path, None, WorldOrInterface::Interface),
-                        ExternKind::Func(..) => Ok(()),
-                    };
+                        };
 
                     for kind in imports {
                         visit_kind(kind)?;
@@ -224,6 +233,7 @@ impl<'a> World<'a> {
 
 enum WorldItem<'a> {
     Import(Import<'a>),
+    UnlockedDep(UnlockedDep<'a>),
     Export(Export<'a>),
     Use(Use<'a>),
     Type(TypeDef<'a>),
@@ -233,6 +243,9 @@ enum WorldItem<'a> {
 impl<'a> WorldItem<'a> {
     fn parse(tokens: &mut Tokenizer<'a>, docs: Docs<'a>) -> Result<WorldItem<'a>> {
         match tokens.clone().next()? {
+            Some((_span, Token::UnlockedDep)) => {
+                UnlockedDep::parse(tokens).map(WorldItem::UnlockedDep)
+            }
             Some((_span, Token::Import)) => Import::parse(tokens, docs).map(WorldItem::Import),
             Some((_span, Token::Export)) => Export::parse(tokens, docs).map(WorldItem::Export),
             Some((_span, Token::Use)) => Use::parse(tokens).map(WorldItem::Use),
@@ -259,6 +272,28 @@ impl<'a> WorldItem<'a> {
     }
 }
 
+struct UnlockedDep<'a> {
+    name: Id<'a>,
+    docs: Docs<'a>,
+    kind: ExternKind<'a>,
+}
+
+impl<'a> UnlockedDep<'a> {
+    fn parse(tokens: &mut Tokenizer<'a>) -> Result<Self> {
+        tokens.expect(Token::UnlockedDep)?;
+        tokens.expect(Token::Colon)?;
+        parse_id(tokens)?;
+        tokens.expect(Token::Colon)?;
+        let id = parse_id(tokens)?.clone();
+        tokens.expect_semicolon()?;
+
+        Ok(Self {
+            name: id.clone(),
+            docs: Default::default(),
+            kind: ExternKind::UnlockedDep(id, vec![]),
+        })
+    }
+}
 struct Import<'a> {
     docs: Docs<'a>,
     kind: ExternKind<'a>,
@@ -289,6 +324,8 @@ enum ExternKind<'a> {
     Interface(Id<'a>, Vec<InterfaceItem<'a>>),
     Path(UsePath<'a>),
     Func(Id<'a>, Func<'a>),
+    // UnlockedDep(Id<'a>, Vec<UnlockedDepItem<'a>>),
+    UnlockedDep(Id<'a>, Vec<UnlockedDepItem>),
 }
 
 impl<'a> ExternKind<'a> {
@@ -333,6 +370,7 @@ impl<'a> ExternKind<'a> {
             ExternKind::Path(UsePath::Id(id)) => id.span,
             ExternKind::Path(UsePath::Package { name, .. }) => name.span,
             ExternKind::Func(id, _) => id.span,
+            ExternKind::UnlockedDep(id, _) => id.span,
         }
     }
 }
@@ -371,6 +409,9 @@ pub enum WorldOrInterface {
     Interface,
     Unknown,
 }
+
+// struct UnlockedDepItem<'a>(&'a str);
+struct UnlockedDepItem(());
 
 enum InterfaceItem<'a> {
     TypeDef(TypeDef<'a>),
@@ -494,7 +535,7 @@ impl<'a> Include<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
 pub struct Id<'a> {
     name: &'a str,
     span: Span,
@@ -880,6 +921,21 @@ fn parse_id<'a>(tokens: &mut Tokenizer<'a>) -> Result<Id<'a>> {
         other => Err(err_expected(tokens, "an identifier or string", other).into()),
     }
 }
+
+// POTENTIALLY USEFUL WHEN FIXING PARSING TO ACTUALLY USE PROPER SYNTAX
+// fn parse_pkg_id<'a>(tokens: &mut Tokenizer<'a>) -> Result<Id<'a>> {
+//     match tokens.next()? {
+//         Some((span, Token::Id)) => Ok(Id {
+//             name: tokens.parse_id(span)?,
+//             span,
+//         }),
+//         Some((span, Token::ExplicitId)) => Ok(Id {
+//             name: tokens.parse_explicit_id(span)?,
+//             span,
+//         }),
+//         other => Err(err_expected(tokens, "an identifier or string", other).into()),
+//     }
+// }
 
 fn parse_opt_version(tokens: &mut Tokenizer<'_>) -> Result<Option<(Span, Version)>> {
     if !tokens.eat(Token::At)? {

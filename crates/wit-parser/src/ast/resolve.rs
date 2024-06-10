@@ -53,6 +53,7 @@ pub struct Resolver<'a> {
     foreign_interfaces: HashSet<InterfaceId>,
 
     foreign_worlds: HashSet<WorldId>,
+    foreign_unlocked_deps: HashSet<WorldId>,
 
     /// The current type lookup scope which will eventually make its way into
     /// `self.interface_types`.
@@ -98,6 +99,8 @@ enum Key {
 enum TypeItem<'a, 'b> {
     Use(&'b ast::Use<'a>),
     Def(&'b ast::TypeDef<'a>),
+    // UnlockedDep(&'b ast::UnlockedDep<'a>),
+    UnlockedDep,
 }
 
 enum TypeOrItem {
@@ -169,6 +172,7 @@ impl<'a> Resolver<'a> {
                         let id = match self.ast_items[i][iface.name.name] {
                             AstItem::Interface(id) => id,
                             AstItem::World(_) => unreachable!(),
+                            AstItem::UnlockedDep(_) => todo!(),
                         };
                         iface_id_to_ast.insert(id, (iface, i));
                     }
@@ -176,6 +180,7 @@ impl<'a> Resolver<'a> {
                         let id = match self.ast_items[i][world.name.name] {
                             AstItem::World(id) => id,
                             AstItem::Interface(_) => unreachable!(),
+                            AstItem::UnlockedDep(_) => todo!(),
                         };
                         world_id_to_ast.insert(id, (world, i));
                     }
@@ -231,6 +236,7 @@ impl<'a> Resolver<'a> {
         let mut foreign_deps = mem::take(&mut self.foreign_deps);
         let mut foreign_interfaces = mem::take(&mut self.foreign_interfaces);
         let mut foreign_worlds = mem::take(&mut self.foreign_worlds);
+        let mut foreign_unlocked_deps = mem::take(&mut self.foreign_unlocked_deps);
         for ast in asts {
             ast.for_each_path(|_, path, _names, world_or_iface| {
                 let (id, name) = match path {
@@ -268,6 +274,7 @@ impl<'a> Resolver<'a> {
                 let _ = match id {
                     AstItem::Interface(id) => foreign_interfaces.insert(id),
                     AstItem::World(id) => foreign_worlds.insert(id),
+                    AstItem::UnlockedDep(id) => foreign_unlocked_deps.insert(id),
                 };
 
                 Ok(())
@@ -300,12 +307,14 @@ impl<'a> Resolver<'a> {
             imports: Vec::new(),
             exports: Vec::new(),
             includes: Vec::new(),
+            unlocked_deps: Vec::new(),
         });
         self.worlds.alloc(World {
             name: String::new(),
             docs: Docs::default(),
             exports: IndexMap::new(),
             imports: IndexMap::new(),
+            unlocked_deps: Default::default(),
             package: None,
             includes: Default::default(),
             include_names: Default::default(),
@@ -528,33 +537,43 @@ impl<'a> Resolver<'a> {
                     None => return Ok(()),
                 };
                 let (item, name, span) = self.resolve_ast_item_path(path)?;
-                let iface = self.extract_iface_from_item(&item, &name, span)?;
-                if !self.foreign_interfaces.contains(&iface) {
-                    return Ok(());
-                }
+                match item {
+                    AstItem::Interface(_) | AstItem::World(_) => {
+                        let iface = self.extract_iface_from_item(&item, &name, span)?;
+                        if !self.foreign_interfaces.contains(&iface) {
+                            return Ok(());
+                        }
 
-                let lookup = &mut self.interface_types[iface.index()];
-                for name in names {
-                    // If this name has already been defined then use that prior
-                    // definition, otherwise create a new type with an unknown
-                    // representation and insert it into the various maps.
-                    if lookup.contains_key(name.name.name) {
-                        continue;
+                        let lookup = &mut self.interface_types[iface.index()];
+                        for name in names {
+                            // If this name has already been defined then use that prior
+                            // definition, otherwise create a new type with an unknown
+                            // representation and insert it into the various maps.
+                            if lookup.contains_key(name.name.name) {
+                                continue;
+                            }
+                            let id = self.types.alloc(TypeDef {
+                                docs: Docs::default(),
+                                kind: TypeDefKind::Unknown,
+                                name: Some(name.name.name.to_string()),
+                                owner: TypeOwner::Interface(iface),
+                            });
+                            self.unknown_type_spans.push(name.name.span);
+                            lookup.insert(name.name.name, (TypeOrItem::Type(id), name.name.span));
+                            self.interfaces[iface]
+                                .types
+                                .insert(name.name.name.to_string(), id);
+                        }
+
+                        Ok(())
                     }
-                    let id = self.types.alloc(TypeDef {
-                        docs: Docs::default(),
-                        kind: TypeDefKind::Unknown,
-                        name: Some(name.name.name.to_string()),
-                        owner: TypeOwner::Interface(iface),
-                    });
-                    self.unknown_type_spans.push(name.name.span);
-                    lookup.insert(name.name.name, (TypeOrItem::Type(id), name.name.span));
-                    self.interfaces[iface]
-                        .types
-                        .insert(name.name.name.to_string(), id);
+                    AstItem::UnlockedDep(u) => {
+                        self.worlds[u]
+                            .unlocked_deps
+                            .insert(WorldKey::UnlockedDep(name), WorldItem::UnlockedDep(u));
+                        Ok(())
+                    }
                 }
-
-                Ok(())
             })?;
         }
         Ok(())
@@ -567,11 +586,15 @@ impl<'a> Resolver<'a> {
         self.resolve_types(
             TypeOwner::World(world_id),
             world.items.iter().filter_map(|i| match i {
-                ast::WorldItem::Use(u) => Some(TypeItem::Use(u)),
+                ast::WorldItem::Use(u) => match &u.from {
+                    ast::UsePath::Id(_) | ast::UsePath::Package { .. } => Some(TypeItem::Use(u)),
+                },
                 ast::WorldItem::Type(t) => Some(TypeItem::Def(t)),
                 ast::WorldItem::Import(_) | ast::WorldItem::Export(_) => None,
                 // should be handled in `wit-parser::resolve`
                 ast::WorldItem::Include(_) => None,
+                // ast::WorldItem::UnlockedDep(u) => Some(TypeItem::UnlockedDep(u)),
+                ast::WorldItem::UnlockedDep(u) => Some(TypeItem::UnlockedDep),
             }),
         )?;
 
@@ -583,9 +606,20 @@ impl<'a> Resolver<'a> {
         for include in items {
             self.resolve_include(world_id, include)?;
         }
+        let unlocked_dep_items = world.items.iter().filter_map(|i| match i {
+            ast::WorldItem::UnlockedDep(u) => Some(u),
+            _ => None,
+        });
+        for dep in unlocked_dep_items {
+            match &dep.kind {
+                ast::ExternKind::UnlockedDep(_, _) => {}
+                _ => bail!("expected unlocked dep"),
+            }
+        }
 
         let mut export_spans = Vec::new();
         let mut import_spans = Vec::new();
+        let unlocked_dep_spans = Vec::new();
         let mut import_names = HashMap::new();
         let mut export_names = HashMap::new();
         for (name, (item, span)) in self.type_lookup.iter() {
@@ -654,6 +688,14 @@ impl<'a> Resolver<'a> {
                 ast::WorldItem::Use(_) | ast::WorldItem::Type(_) | ast::WorldItem::Include(_) => {
                     continue
                 }
+                ast::WorldItem::UnlockedDep(u) => (
+                    &u.docs,
+                    &u.kind,
+                    "unlocked-dep",
+                    &mut import_spans,
+                    &mut imported_interfaces,
+                    &mut import_names,
+                ),
             };
             let key = match kind {
                 ast::ExternKind::Interface(name, _) | ast::ExternKind::Func(name, _) => {
@@ -671,12 +713,13 @@ impl<'a> Resolver<'a> {
                     WorldKey::Name(name.name.to_string())
                 }
                 ast::ExternKind::Path(path) => {
-                    let (item, name, span) = self.resolve_ast_item_path(path)?;
+                    let (item, name, span) = self.resolve_ast_item_path(&path)?;
                     let id = self.extract_iface_from_item(&item, &name, span)?;
                     WorldKey::Interface(id)
                 }
+                ast::ExternKind::UnlockedDep(id, _) => WorldKey::UnlockedDep(id.name.to_string()), // ast::ExternKind::UnlockedDep(_, _) => todo!(),
             };
-            let world_item = self.resolve_world_item(docs, kind)?;
+            let world_item = self.resolve_world_item(docs, &kind, world_id)?;
             if let WorldItem::Interface(id) = world_item {
                 if !interfaces.insert(id) {
                     bail!(Error {
@@ -687,8 +730,10 @@ impl<'a> Resolver<'a> {
             }
             let dst = if desc == "import" {
                 &mut self.worlds[world_id].imports
-            } else {
+            } else if desc == "export" {
                 &mut self.worlds[world_id].exports
+            } else {
+                &mut self.worlds[world_id].unlocked_deps
             };
             let prev = dst.insert(key, world_item);
             assert!(prev.is_none());
@@ -696,6 +741,7 @@ impl<'a> Resolver<'a> {
         }
         self.world_spans[world_id.index()].imports = import_spans;
         self.world_spans[world_id.index()].exports = export_spans;
+        self.world_spans[world_id.index()].unlocked_deps = unlocked_dep_spans;
         self.type_lookup.clear();
 
         Ok(world_id)
@@ -705,6 +751,7 @@ impl<'a> Resolver<'a> {
         &mut self,
         docs: &ast::Docs<'a>,
         kind: &ast::ExternKind<'a>,
+        world_id: WorldId,
     ) -> Result<WorldItem> {
         match kind {
             ast::ExternKind::Interface(name, items) => {
@@ -724,6 +771,7 @@ impl<'a> Resolver<'a> {
                     self.resolve_function(docs, name.name, func, FunctionKind::Freestanding)?;
                 Ok(WorldItem::Function(func))
             }
+            ast::ExternKind::UnlockedDep(_, _) => Ok(WorldItem::UnlockedDep(world_id)),
         }
     }
 
@@ -819,6 +867,7 @@ impl<'a> Resolver<'a> {
                     self.resolve_use(owner, u)?;
                 }
                 TypeItem::Def(_) => {}
+                TypeItem::UnlockedDep => {}
             }
         }
 
@@ -849,6 +898,10 @@ impl<'a> Resolver<'a> {
                         type_deps.insert(name.name, Vec::new());
                         type_defs.insert(name.name, None);
                     }
+                }
+                // TypeItem::UnlockedDep(_) => {
+                TypeItem::UnlockedDep => {
+                    continue;
                 }
             }
         }
@@ -1005,6 +1058,7 @@ impl<'a> Resolver<'a> {
                     msg: format!("name `{}` is defined as a world, not an interface", name),
                 })
             }
+            AstItem::UnlockedDep(_) => todo!(),
         }
     }
 
@@ -1017,6 +1071,7 @@ impl<'a> Resolver<'a> {
                     msg: format!("name `{}` is defined as an interface, not a world", name),
                 })
             }
+            AstItem::UnlockedDep(_) => todo!(),
         }
     }
 

@@ -21,7 +21,7 @@ struct CrlfFold<'a> {
 }
 
 /// A span, designating a range of bytes where a token is located.
-#[derive(Eq, PartialEq, Debug, Clone, Copy)]
+#[derive(Hash, Eq, PartialEq, Debug, Clone, Copy)]
 pub struct Span {
     /// The start of the range.
     pub start: u32,
@@ -86,6 +86,7 @@ pub enum Token {
     Static,
     Interface,
     Tuple,
+    UnlockedDep,
     Import,
     Export,
     World,
@@ -320,6 +321,7 @@ impl<'a> Tokenizer<'a> {
                     "tuple" => Tuple,
                     "world" => World,
                     "import" => Import,
+                    "unlocked-dep" => UnlockedDep,
                     "export" => Export,
                     "package" => Package,
                     "constructor" => Constructor,
@@ -575,6 +577,7 @@ impl Token {
             Interface => "keyword `interface`",
             Tuple => "keyword `tuple`",
             Import => "keyword `import`",
+            UnlockedDep => "keyword `unlocked-dep`",
             Export => "keyword `export`",
             World => "keyword `world`",
             Package => "keyword `package`",

@@ -155,6 +155,7 @@ impl WorldDocs {
                             funcs.insert(name.to_string(), docs.to_string());
                         }
                     }
+                    WorldItem::UnlockedDep(_) => {}
                 }
             }
         }

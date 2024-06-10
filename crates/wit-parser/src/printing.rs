@@ -1,8 +1,8 @@
+use crate::*;
 use anyhow::{anyhow, bail, Result};
 use std::collections::HashMap;
 use std::fmt::{self, Write};
 use std::mem;
-use wit_parser::*;
 
 // NB: keep in sync with `crates/wit-parser/src/ast/lex.rs`
 const PRINT_SEMICOLONS_DEFAULT: bool = true;
@@ -323,7 +323,8 @@ impl WitPrinter {
             match import {
                 WorldItem::Type(t) => match name {
                     WorldKey::Name(s) => types.push((s.as_str(), *t)),
-                    WorldKey::Interface(_) | WorldKey::UnlockedDep(_) => unreachable!(),
+                    WorldKey::Interface(_) => unreachable!(),
+                    WorldKey::UnlockedDep(_) => todo!(),
                 },
                 _ => {
                     if let WorldItem::Function(f) = import {
@@ -351,6 +352,10 @@ impl WitPrinter {
         }
         for (name, export) in world.exports.iter() {
             self.print_world_item(resolve, name, export, pkgid, "export")?;
+        }
+        dbg!(&world.name);
+        for (name, unlocked_dep) in world.unlocked_deps.iter() {
+            dbg!("PRINTING ULNOCKED DEPS");
         }
         self.any_items = prev_items;
         Ok(())
@@ -394,7 +399,8 @@ impl WitPrinter {
                         self.output.push_str("\n");
                     }
                     // Types are handled separately
-                    WorldItem::Type(_) | WorldItem::UnlockedDep(_) => unreachable!(),
+                    WorldItem::Type(_) => unreachable!(),
+                    WorldItem::UnlockedDep(_) => {}
                 }
             }
             WorldKey::Interface(id) => {
