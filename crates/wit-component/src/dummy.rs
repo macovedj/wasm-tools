@@ -33,6 +33,7 @@ pub fn dummy_module(resolve: &Resolve, world: WorldId) -> Vec<u8> {
             WorldItem::Type(id) => {
                 push_resource_func_imports(&mut wat, resolve, "$root", *id);
             }
+            WorldItem::UnlockedDep(_) => unreachable!(),
         }
     }
 
@@ -84,7 +85,7 @@ pub fn dummy_module(resolve: &Resolve, world: WorldId) -> Vec<u8> {
                     ));
                 }
             }
-            WorldItem::Type(_) => {}
+            WorldItem::Type(_) | WorldItem::UnlockedDep(_) => {}
         }
     }
 

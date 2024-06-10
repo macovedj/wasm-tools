@@ -89,6 +89,7 @@ impl Default for Bindgen {
             docs: Default::default(),
             imports: Default::default(),
             exports: Default::default(),
+            unlocked_deps: Default::default(),
             includes: Default::default(),
             include_names: Default::default(),
             package: Some(package),
@@ -369,7 +370,7 @@ impl ModuleMetadata {
                         assert!(prev.is_none());
                     }
                 }
-                WorldItem::Type(_) => {}
+                WorldItem::Type(_) | WorldItem::UnlockedDep(_) => {}
             }
         }
 
@@ -388,7 +389,7 @@ impl ModuleMetadata {
                         assert!(prev.is_none());
                     }
                 }
-                WorldItem::Type(_) => {}
+                WorldItem::Type(_) | WorldItem::UnlockedDep(_) => {}
             }
         }
 

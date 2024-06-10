@@ -39,6 +39,7 @@ impl LiveTypes {
             WorldItem::Interface(id) => self.add_interface(resolve, *id),
             WorldItem::Function(f) => self.add_func(resolve, f),
             WorldItem::Type(t) => self.add_type_id(resolve, *t),
+            WorldItem::UnlockedDep(_) => {}
         }
     }
 

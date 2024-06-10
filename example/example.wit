@@ -1,0 +1,5 @@
+package foo:bar@1.0.0;
+
+world another {
+  unlocked-dep: root:component;
+}

@@ -121,7 +121,7 @@ impl<'a> ComponentWorld<'a> {
                     .all(|name| match &resolve.worlds[world].exports[name] {
                         WorldItem::Function(_) => false,
                         WorldItem::Interface(id) => resolve.interfaces[*id].functions.is_empty(),
-                        WorldItem::Type(_) => true,
+                        WorldItem::Type(_) | WorldItem::UnlockedDep(_) => true,
                     })
             };
             if no_required_by_import() && no_required_exports() && library_info.is_none() {
@@ -215,7 +215,7 @@ impl<'a> ComponentWorld<'a> {
                         add_func(func, Some(&name));
                     }
                 }
-                WorldItem::Type(_) => {}
+                WorldItem::Type(_) | WorldItem::UnlockedDep(_) => {}
             }
         }
         return required;
@@ -278,10 +278,12 @@ impl<'a> ComponentWorld<'a> {
             let import_map_key = match item {
                 WorldItem::Function(_) | WorldItem::Type(_) => None,
                 WorldItem::Interface(_) => Some(name),
+                WorldItem::UnlockedDep(_) => None,
             };
             let interface_id = match item {
                 WorldItem::Function(_) | WorldItem::Type(_) => None,
                 WorldItem::Interface(id) => Some(*id),
+                WorldItem::UnlockedDep(_) => None,
             };
             let required = required
                 .get(import_map_key.as_deref().unwrap_or(BARE_FUNC_MODULE_NAME))
@@ -308,6 +310,7 @@ impl<'a> ComponentWorld<'a> {
                         interface.add_func(required, resolve, func);
                     }
                 }
+                WorldItem::UnlockedDep(_) => {}
             }
             Ok(())
         }
@@ -349,6 +352,7 @@ impl<'a> ComponentWorld<'a> {
                     live.add_world_item(resolve, item);
                     continue;
                 }
+                WorldItem::UnlockedDep(_) => continue,
             };
 
             let exports_used = &self.exports_used[id];
@@ -419,6 +423,7 @@ impl<'a> ComponentWorld<'a> {
                     }
                 }
                 WorldItem::Type(id) => live.add_type_id(resolve, *id),
+                WorldItem::UnlockedDep(_) => {}
             }
         }
     }
@@ -433,6 +438,7 @@ impl<'a> ComponentWorld<'a> {
                 WorldItem::Function(_) => continue,
                 WorldItem::Interface(id) => *id,
                 WorldItem::Type(_) => unreachable!(),
+                WorldItem::UnlockedDep(_) => continue,
             };
             let mut set = HashSet::new();
 
