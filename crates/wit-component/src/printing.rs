@@ -53,6 +53,7 @@ impl WitPrinter {
     /// Print a set of one or more WIT packages into a string.
     pub fn print(&mut self, resolve: &Resolve, pkg_ids: &[PackageId]) -> Result<String> {
         let has_multiple_packages = pkg_ids.len() > 1;
+        dbg!(&has_multiple_packages);
         for (i, pkg_id) in pkg_ids.into_iter().enumerate() {
             if i > 0 {
                 self.output.push_str("\n\n");
@@ -70,7 +71,6 @@ impl WitPrinter {
 
             if has_multiple_packages {
                 self.output.push_str(" {\n");
-                self.output.indent += 1
             } else {
                 self.print_semicolon();
                 self.output.push_str("\n\n");
@@ -98,7 +98,6 @@ impl WitPrinter {
 
             if has_multiple_packages {
                 self.output.push_str("}");
-                self.output.indent -= 1
             }
         }
 

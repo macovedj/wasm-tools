@@ -1,3 +1,4 @@
+use crate::resolve::PackageKind;
 use crate::*;
 use anyhow::{anyhow, bail};
 use indexmap::IndexSet;
@@ -6,6 +7,9 @@ use std::mem;
 use std::slice;
 use std::{collections::HashMap, io::Read};
 use wasmparser::Chunk;
+use wasmparser::ComponentNameSectionReader;
+use wasmparser::KnownCustom;
+use wasmparser::NameMap;
 use wasmparser::{
     names::{ComponentName, ComponentNameKind},
     types,
@@ -21,6 +25,8 @@ struct ComponentInfo {
     types: types::Types,
     /// List of all imports and exports from this component.
     externs: Vec<(String, Extern)>,
+    /// Packages
+    packages: Vec<PackageName>,
     /// Decoded package metadata
     package_metadata: Option<PackageMetadata>,
 }
@@ -42,11 +48,54 @@ enum WitEncodingVersion {
     V2,
 }
 
+struct Naming {
+    identifier: Option<String>,
+    name: String,
+}
+
+fn register_names(
+    // packages: &mut Vec<PackageName>,
+    names: ComponentNameSectionReader,
+) -> Result<Vec<PackageName>> {
+    let mut packages = Vec::new();
+    for section in names {
+        dbg!("ITERATING");
+        match section? {
+            wasmparser::ComponentName::Component { name, .. } => {
+                dbg!("IN COMPONENT SECTION");
+            }
+            wasmparser::ComponentName::Components(s) => {
+                let map: NameMap = s.into();
+                for item in map {
+                    let name = item?;
+                    let mut parts = name.name.split(":");
+                    let namespace = parts.next().expect("expected identifier");
+                    let id = parts.next().expect("expected identifer");
+                    packages.push(PackageName {
+                        namespace: namespace.to_string(),
+                        name: id.to_string(),
+                        version: None,
+                    });
+                }
+                // let map = s.into();
+
+                // for name in map.
+                // dbg!("MANY");
+            }
+            _ => {} // wasmparser::ComponentName::
+                    // _ => todo!(),
+        }
+    }
+    Ok(packages)
+}
+
 impl ComponentInfo {
     /// Creates a new component info by parsing the given WebAssembly component bytes.
 
     fn from_reader(mut reader: impl Read) -> Result<Self> {
         let mut validator = Validator::new_with_features(WasmFeatures::all());
+        // let mut names = Vec::new();
+        let mut packages = Vec::new();
         let mut externs = Vec::new();
         let mut depth = 1;
         let mut types = None;
@@ -90,6 +139,12 @@ impl ComponentInfo {
             }
 
             match payload {
+                Payload::Version { encoding, .. } => match encoding {
+                    wasmparser::Encoding::Module => {
+                        bail!("Expected component binary, found core wasm module")
+                    }
+                    wasmparser::Encoding::Component => {}
+                },
                 Payload::ComponentImportSection(s) if depth == 1 => {
                     for import in s {
                         let import = import?;
@@ -113,11 +168,20 @@ impl ComponentInfo {
                     }
                 }
                 #[cfg(feature = "serde")]
-                Payload::CustomSection(s) if s.name() == PackageMetadata::SECTION_NAME => {
-                    if _package_metadata.is_some() {
-                        bail!("multiple {:?} sections", PackageMetadata::SECTION_NAME);
+                Payload::CustomSection(s) => {
+                    if s.name() == PackageMetadata::SECTION_NAME {
+                        if _package_metadata.is_some() {
+                            // dbg!(&_package_metadata);
+                        }
+                        _package_metadata = Some(PackageMetadata::decode(s.data())?);
+                    } else if s.name() == "component-name" {
+                        dbg!(&s.name());
+                        if let KnownCustom::ComponentName(reader) = s.as_known() {
+                            packages = register_names(reader)?;
+                        } else {
+                            bail!("Expected component name section")
+                        }
                     }
-                    _package_metadata = Some(PackageMetadata::decode(s.data())?);
                 }
                 Payload::ModuleSection { parser, .. }
                 | Payload::ComponentSection { parser, .. } => {
@@ -139,8 +203,10 @@ impl ComponentInfo {
             buffer.drain(..consumed);
         }
 
+        dbg!(&packages);
         Ok(Self {
             types: types.unwrap(),
+            packages,
             externs,
             package_metadata: _package_metadata,
         })
@@ -149,6 +215,9 @@ impl ComponentInfo {
     fn is_wit_package(&self) -> Option<WitEncodingVersion> {
         // all wit package exports must be component types, and there must be at
         // least one
+        if !self.packages.is_empty() {
+            return Some(WitEncodingVersion::V2);
+        }
         if self.externs.is_empty() {
             return None;
         }
@@ -177,12 +246,12 @@ impl ComponentInfo {
             ComponentNameKind::Interface(name) if name.interface().as_str() == "wit" => {
                 Some(WitEncodingVersion::V1)
             }
-            ComponentNameKind::Label(_) => Some(WitEncodingVersion::V2),
-            _ => None,
+            // ComponentNameKind::Label(_) => Some(WitEncodingVersion::V2),
+            _ => Some(WitEncodingVersion::V2),
         }
     }
 
-    fn decode_wit_v1_package(&self) -> Result<(Resolve, Vec<PackageId>)> {
+    fn decode_wit_v1_package(&self) -> Result<(Resolve, PackageId)> {
         let mut decoder = WitPackageDecoder::new(&self.types);
 
         let mut pkg = None;
@@ -205,13 +274,11 @@ impl ComponentInfo {
         }
 
         let pkg = pkg.ok_or_else(|| anyhow!("no exported component type found"))?;
-        let (mut resolve, packages) = decoder.finish(&[pkg]);
-        for package in &packages {
-            if let Some(package_metadata) = &self.package_metadata {
-                package_metadata.inject(&mut resolve, *package)?;
-            }
+        let (mut resolve, packages) = decoder.finish(&mut [pkg]);
+        if let Some(package_metadata) = &self.package_metadata {
+            package_metadata.inject(&mut resolve, packages[0])?;
         }
-        Ok((resolve, packages))
+        Ok((resolve, packages[0]))
     }
 
     fn decode_wit_v2_packages(&self) -> Result<(Resolve, Vec<PackageId>)> {
@@ -225,6 +292,18 @@ impl ComponentInfo {
             interfaces: &mut interfaces,
             worlds: &mut worlds,
         };
+
+        let mut pkg_ids = Vec::new();
+        for pkg_name in &self.packages {
+            let pkg = Package {
+                name: pkg_name.clone(),
+                kind: PackageKind::Explicit,
+                docs: Docs::default(),
+                interfaces: IndexMap::default(),
+                worlds: IndexMap::default(),
+            };
+            pkg_ids.push(pkg);
+        }
 
         for (_, item) in self.externs.iter() {
             let export = match item {
@@ -268,17 +347,17 @@ impl ComponentInfo {
             pkg_names.insert(name);
         }
 
-        let mut pkg_ids = Vec::new();
         for pkg_name in pkg_names {
             let pkg = Package {
                 name: pkg_name,
+                kind: PackageKind::Implicit,
                 docs: Docs::default(),
                 interfaces: interfaces.clone(),
                 worlds: worlds.clone(),
             };
             pkg_ids.push(pkg);
         }
-        let (mut resolve, packages) = decoder.finish(&pkg_ids);
+        let (mut resolve, packages) = decoder.finish(&mut pkg_ids);
         for package in &packages {
             if let Some(package_metadata) = &self.package_metadata {
                 package_metadata.inject(&mut resolve, package.clone())?;
@@ -313,6 +392,7 @@ impl ComponentInfo {
                 version: None,
                 name: "component".to_string(),
             },
+            kind: PackageKind::Implicit,
             docs: Default::default(),
             worlds: [(world_name.to_string(), world)].into_iter().collect(),
             interfaces: Default::default(),
@@ -334,7 +414,7 @@ impl ComponentInfo {
             }
         }
 
-        let (resolve, _) = decoder.finish(&[package]);
+        let (resolve, _) = decoder.finish(&mut [package]);
         Ok((resolve, world))
     }
 }
@@ -382,11 +462,13 @@ pub fn decode_reader(reader: impl Read) -> Result<DecodedWasm> {
             WitEncodingVersion::V1 => {
                 log::debug!("decoding a v1 WIT package encoded as wasm");
                 let (resolve, pkg) = info.decode_wit_v1_package()?;
-                Ok(DecodedWasm::WitPackages(resolve, pkg.to_vec()))
+                Ok(DecodedWasm::WitPackages(resolve, vec![pkg]))
             }
             WitEncodingVersion::V2 => {
+                dbg!("V2");
                 log::debug!("decoding a v2 WIT package encoded as wasm");
                 let (resolve, pkgs) = info.decode_wit_v2_packages()?;
+                dbg!(&pkgs);
                 Ok(DecodedWasm::WitPackages(resolve, pkgs))
             }
         }
@@ -478,8 +560,9 @@ pub fn decode_world(wasm: &[u8]) -> Result<(Resolve, WorldId)> {
             worlds: &mut worlds,
         },
     )?;
-    let (resolve, pkgs) = decoder.finish(&[Package {
+    let (resolve, pkgs) = decoder.finish(&mut [Package {
         name,
+        kind: PackageKind::Implicit,
         interfaces,
         worlds,
         docs: Default::default(),
@@ -554,6 +637,7 @@ impl WitPackageDecoder<'_> {
                 }
                 _ => bail!("package name is not a valid id: {name}"),
             },
+            kind: PackageKind::Implicit,
             docs: Default::default(),
             interfaces: Default::default(),
             worlds: Default::default(),
@@ -882,6 +966,7 @@ impl WitPackageDecoder<'_> {
             .entry(package_name.to_string())
             .or_insert_with(|| Package {
                 name: package_name.clone(),
+                kind: PackageKind::Implicit,
                 docs: Default::default(),
                 interfaces: Default::default(),
                 worlds: Default::default(),
@@ -1429,7 +1514,7 @@ impl WitPackageDecoder<'_> {
     /// their topological ordering within the returned `Resolve`.
     ///
     /// Takes the root package as an argument to insert.
-    fn finish(mut self, packages: &[Package]) -> (Resolve, Vec<PackageId>) {
+    fn finish(mut self, packages: &mut [Package]) -> (Resolve, Vec<PackageId>) {
         // Build a topological ordering is then calculated by visiting all the
         // transitive dependencies of packages.
         let mut order = IndexSet::new();
@@ -1459,6 +1544,7 @@ impl WitPackageDecoder<'_> {
 
         let mut resolved = Vec::new();
         for package in packages {
+            // let pkg = self.resolve.packages[]
             let id = self.insert_package(package.clone());
             assert!(self.resolve.worlds.iter().all(|(_, w)| w.package.is_some()));
             assert!(self
@@ -1474,6 +1560,7 @@ impl WitPackageDecoder<'_> {
     fn insert_package(&mut self, package: Package) -> PackageId {
         let Package {
             name,
+            kind,
             interfaces,
             worlds,
             docs,
@@ -1492,6 +1579,7 @@ impl WitPackageDecoder<'_> {
             .unwrap_or_else(|| {
                 let id = self.resolve.packages.alloc(Package {
                     name: name.clone(),
+                    kind: kind.clone(),
                     interfaces: Default::default(),
                     worlds: Default::default(),
                     docs,
