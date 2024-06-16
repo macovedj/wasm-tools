@@ -1486,6 +1486,7 @@ impl Printer<'_, '_> {
         self.result.start_name()?;
         match names.get(&cur_idx) {
             Some(name) => {
+                dbg!(&name.name);
                 name.write(self.result)?;
                 self.result.write_str(" ")?;
             }
