@@ -412,8 +412,9 @@ pub struct Interface {
     pub name: Option<String>,
 
     /// The nested interfaces in this interface.
-    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_id_map"))]
-    pub nested: IndexMap<String, InterfaceId>,
+    // #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_id_map"))]
+    // pub nested: IndexMap<String, InterfaceId>,
+    pub nested: IndexMap<String, String>,
     /// Exported types from this interface.
     ///
     /// Export names are listed within the types themselves. Note that the

@@ -560,17 +560,19 @@ impl<'a> Resolver<'a> {
         for name in order {
             match names.get(name) {
                 Some(ast::AstItem::Interface(i)) => {
+                    let id = self.alloc_interface(package_items[name]);
+                    self.interfaces[id].name = Some(name.to_string());
                     for item in &i.items {
                         if let InterfaceItem::Nest(n) = item {
-                            let id = self.alloc_interface(package_items[name]);
-                            self.interfaces[id].name = Some(name.to_string());
+                            self.interfaces[id].nested.insert(
+                                format!("{}/{}", n.id.package_name(), n.name.name.to_string()),
+                                n.name.name.to_string(),
+                            );
                             let prev = ids.insert(n.name.name, AstItem::Interface(id));
                             assert!(prev.is_none());
                             iface_id_order.push(id);
                         }
                     }
-                    let id = self.alloc_interface(package_items[name]);
-                    self.interfaces[id].name = Some(name.to_string());
                     let prev = ids.insert(name, AstItem::Interface(id));
                     assert!(prev.is_none());
                     iface_id_order.push(id);
