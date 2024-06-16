@@ -1,3 +1,4 @@
+use super::ResolverKindTag;
 use super::{
     // AstItem as RootAstItem, Interface as RootInterface,
     Nest,
@@ -5,7 +6,6 @@ use super::{
     ResultList,
     WorldOrInterface,
 };
-use super::{ParamList, ResolverKindTag, ResultList, WorldOrInterface};
 use crate::ast::toposort::toposort;
 use crate::ast::InterfaceItem;
 use crate::*;
@@ -318,6 +318,7 @@ impl<'a> Resolver<'a> {
                 })
                 .unwrap();
             decl_list
+                .1
                 .for_each_nest(|nest: &Nest| {
                     let deps = foreign_deps
                         .entry(nest.id.package_name())
@@ -530,7 +531,7 @@ impl<'a> Resolver<'a> {
                 }
                 Ok(())
             })?;
-            decl_list.for_each_nest(|nest: &Nest| {
+            decl_list.1.for_each_nest(|nest: &Nest| {
                 match decl_list_ns.get(nest.name.name) {
                     Some((_, ItemSource::Foreign)) => return Ok(()),
                     Some((_, ItemSource::Local(id))) => {
@@ -706,7 +707,7 @@ impl<'a> Resolver<'a> {
 
                 Ok(())
             })?;
-            decl_list.for_each_nest(|nest| {
+            decl_list.1.for_each_nest(|nest| {
                 let (item, name, span) = self.resolve_ast_item_nest(nest)?;
                 let iface = self.extract_iface_from_item(&item, &name, span)?;
                 let lookup = &mut self.interface_types[iface.index()];
