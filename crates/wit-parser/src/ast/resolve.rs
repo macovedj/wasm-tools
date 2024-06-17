@@ -108,7 +108,8 @@ enum Key {
 
 enum TypeItem<'a, 'b> {
     Use(&'b ast::Use<'a>),
-    Nest(&'b ast::Nest<'a>),
+    // Nest(&'b ast::Nest<'a>),
+    Nest,
     Def(&'b ast::TypeDef<'a>),
 }
 
@@ -572,9 +573,24 @@ impl<'a> Resolver<'a> {
                     self.interfaces[id].name = Some(name.to_string());
                     for item in &i.items {
                         if let InterfaceItem::Nest(n) = item {
+                            let nest = self
+                                .foreign_deps
+                                .get(&PackageName {
+                                    namespace: n.id.namespace.name.to_string(),
+                                    name: n.id.name.name.to_string(),
+                                    version: n.id.clone().version.map(|v| v.1),
+                                })
+                                .unwrap()
+                                .get(&n.name.name)
+                                .unwrap();
+                            let nested_id = if let AstItem::Interface(id) = nest {
+                                id
+                            } else {
+                                bail!("Expected interface item")
+                            };
                             self.interfaces[id].nested.insert(
                                 format!("{}/{}", n.id.package_name(), n.name.name.to_string()),
-                                n.name.name.to_string(),
+                                *nested_id,
                             );
                             let prev = ids.insert(n.name.name, AstItem::Interface(id));
                             assert!(prev.is_none());
@@ -707,10 +723,10 @@ impl<'a> Resolver<'a> {
 
                 Ok(())
             })?;
-            decl_list.1.for_each_nest(|nest| {
-                let (item, name, span) = self.resolve_ast_item_nest(nest)?;
-                let iface = self.extract_iface_from_item(&item, &name, span)?;
-                let lookup = &mut self.interface_types[iface.index()];
+            decl_list.1.for_each_nest(|_nest| {
+                // let (item, name, span) = self.resolve_ast_item_nest(nest)?;
+                // let iface = self.extract_iface_from_item(&item, &name, span)?;
+                // let lookup = &mut self.interface_types[iface.index()];
                 Ok(())
             })?;
         }
@@ -910,7 +926,7 @@ impl<'a> Resolver<'a> {
                 ast::InterfaceItem::Use(u) => Some(TypeItem::Use(u)),
                 ast::InterfaceItem::TypeDef(t) => Some(TypeItem::Def(t)),
                 ast::InterfaceItem::Func(_) => None,
-                ast::InterfaceItem::Nest(n) => Some(TypeItem::Nest(n)),
+                ast::InterfaceItem::Nest(_) => Some(TypeItem::Nest),
             }),
         )?;
 
@@ -989,10 +1005,10 @@ impl<'a> Resolver<'a> {
                 TypeItem::Use(u) => {
                     self.resolve_use(owner, u)?;
                 }
-                TypeItem::Nest(n) => {
-                    self.resolve_nest(owner, n)?;
-                }
-                TypeItem::Def(_) => {}
+                _ => {} // TypeItem::Nest(_) => {
+                        //     // self.resolve_nest(owner, n)?;
+                        // }
+                        // TypeItem::Def(_) => {}
             }
         }
 
@@ -1023,7 +1039,7 @@ impl<'a> Resolver<'a> {
                         type_defs.insert(name.name, None);
                     }
                 }
-                TypeItem::Nest(n) => {}
+                TypeItem::Nest => {}
             }
         }
         let order = toposort("type", &type_deps)?;
@@ -1082,15 +1098,15 @@ impl<'a> Resolver<'a> {
         Ok(())
     }
 
-    fn resolve_nest(&mut self, owner: TypeOwner, n: &ast::Nest<'a>) -> Result<()> {
-        let (item, name, span) = self.resolve_ast_item_nest(&n)?;
-        let use_from = self.extract_iface_from_item(&item, &name, span)?;
-        let extracted = &self.interfaces[use_from];
+    // fn resolve_nest(&mut self, owner: TypeOwner, n: &ast::Nest<'a>) -> Result<()> {
+    //     let (item, name, span) = self.resolve_ast_item_nest(&n)?;
+    //     let use_from = self.extract_iface_from_item(&item, &name, span)?;
+    //     let extracted = &self.interfaces[use_from];
 
-        let stability = self.stability(&n.attributes)?;
-        let lookup = &self.interface_types[use_from.index()];
-        Ok(())
-    }
+    //     let stability = self.stability(&n.attributes)?;
+    //     let lookup = &self.interface_types[use_from.index()];
+    //     Ok(())
+    // -/ }
 
     /// For each name in the `include`, resolve the path of the include, add it to the self.includes
     fn resolve_include(&mut self, world_id: WorldId, i: &ast::Include<'a>) -> Result<()> {
@@ -1193,20 +1209,20 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn resolve_ast_item_nest(&self, nest: &ast::Nest<'a>) -> Result<(AstItem, String, Span)> {
-        let item: Option<&AstItem> = self.ast_items[self.cur_ast_index]
-            .get(nest.name.name)
-            .or_else(|| self.package_items.get(nest.name.name));
-        match item {
-            Some(item) => Ok((*item, nest.name.name.to_string(), nest.id.span)),
-            None => {
-                bail!(Error::new(
-                    nest.id.span,
-                    format!("interface or world `{}` does not exist", nest.name.name),
-                ))
-            }
-        }
-    }
+    // fn resolve_ast_item_nest(&self, nest: &ast::Nest<'a>) -> Result<(AstItem, String, Span)> {
+    //     let item: Option<&AstItem> = self.ast_items[self.cur_ast_index]
+    //         .get(nest.name.name)
+    //         .or_else(|| self.package_items.get(nest.name.name));
+    //     match item {
+    //         Some(item) => Ok((*item, nest.name.name.to_string(), nest.id.span)),
+    //         None => {
+    //             bail!(Error::new(
+    //                 nest.id.span,
+    //                 format!("interface or world `{}` does not exist", nest.name.name),
+    //             ))
+    //         }
+    //     }
+    // _/ }
 
     fn extract_iface_from_item(
         &self,

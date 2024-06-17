@@ -48,54 +48,12 @@ enum WitEncodingVersion {
     V2,
 }
 
-struct Naming {
-    identifier: Option<String>,
-    name: String,
-}
-
-fn register_names(
-    // packages: &mut Vec<PackageName>,
-    names: ComponentNameSectionReader,
-) -> Result<Vec<PackageName>> {
-    let mut packages = Vec::new();
-    for section in names {
-        dbg!("ITERATING");
-        match section? {
-            wasmparser::ComponentName::Component { name, .. } => {
-                dbg!("IN COMPONENT SECTION");
-            }
-            wasmparser::ComponentName::Components(s) => {
-                let map: NameMap = s.into();
-                for item in map {
-                    let name = item?;
-                    let mut parts = name.name.split(":");
-                    let namespace = parts.next().expect("expected identifier");
-                    let id = parts.next().expect("expected identifer");
-                    packages.push(PackageName {
-                        namespace: namespace.to_string(),
-                        name: id.to_string(),
-                        version: None,
-                    });
-                }
-                // let map = s.into();
-
-                // for name in map.
-                // dbg!("MANY");
-            }
-            _ => {} // wasmparser::ComponentName::
-                    // _ => todo!(),
-        }
-    }
-    Ok(packages)
-}
-
 impl ComponentInfo {
     /// Creates a new component info by parsing the given WebAssembly component bytes.
 
     fn from_reader(mut reader: impl Read) -> Result<Self> {
         let mut validator = Validator::new_with_features(WasmFeatures::all());
-        // let mut names = Vec::new();
-        let mut packages = Vec::new();
+        let packages = Vec::new();
         let mut externs = Vec::new();
         let mut depth = 1;
         let mut types = None;
@@ -141,7 +99,7 @@ impl ComponentInfo {
             match payload {
                 Payload::Version { encoding, .. } => match encoding {
                     wasmparser::Encoding::Module => {
-                        bail!("Expected component binary, found core wasm module")
+                        // bail!("Expected component binary, found core wasm module")
                     }
                     wasmparser::Encoding::Component => {}
                 },
@@ -170,14 +128,11 @@ impl ComponentInfo {
                 #[cfg(feature = "serde")]
                 Payload::CustomSection(s) => {
                     if s.name() == PackageMetadata::SECTION_NAME {
-                        if _package_metadata.is_some() {
-                            // dbg!(&_package_metadata);
-                        }
+                        if _package_metadata.is_some() {}
                         _package_metadata = Some(PackageMetadata::decode(s.data())?);
                     } else if s.name() == "component-name" {
-                        dbg!(&s.name());
                         if let KnownCustom::ComponentName(reader) = s.as_known() {
-                            packages = register_names(reader)?;
+                            // packages = register_names(reader)?;
                         } else {
                             bail!("Expected component name section")
                         }
@@ -203,7 +158,6 @@ impl ComponentInfo {
             buffer.drain(..consumed);
         }
 
-        dbg!(&packages);
         Ok(Self {
             types: types.unwrap(),
             packages,
@@ -465,10 +419,8 @@ pub fn decode_reader(reader: impl Read) -> Result<DecodedWasm> {
                 Ok(DecodedWasm::WitPackages(resolve, vec![pkg]))
             }
             WitEncodingVersion::V2 => {
-                dbg!("V2");
                 log::debug!("decoding a v2 WIT package encoded as wasm");
                 let (resolve, pkgs) = info.decode_wit_v2_packages()?;
-                dbg!(&pkgs);
                 Ok(DecodedWasm::WitPackages(resolve, pkgs))
             }
         }
@@ -810,6 +762,97 @@ impl WitPackageDecoder<'_> {
         Ok(())
     }
 
+    fn register_export(
+        &mut self,
+        name: &str,
+        ty: &types::ComponentInstanceType,
+    ) -> Result<InterfaceId> {
+        let (is_local, interface) = match self.named_interfaces.get(name) {
+            Some(id) => (true, *id),
+            None => (false, self.extract_dep_interface(name)?),
+        };
+        let owner = TypeOwner::Interface(interface);
+        for (name, ty) in ty.exports.iter() {
+            match *ty {
+                types::ComponentEntityType::Module(_) => todo!(),
+                types::ComponentEntityType::Func(_) => todo!(),
+                types::ComponentEntityType::Value(_) => todo!(),
+                types::ComponentEntityType::Type {
+                    referenced,
+                    created,
+                } => {
+                    match self.resolve.interfaces[interface]
+                        .types
+                        .get(name.as_str())
+                        .copied()
+                    {
+                        // If this name is already defined as a type in the
+                        // specified interface then that's ok. For package-local
+                        // interfaces that's expected since the interface was
+                        // fully defined. For remote interfaces it means we're
+                        // using something that was already used elsewhere. In
+                        // both cases continue along.
+                        //
+                        // Notably for the remotely defined case this will also
+                        // walk over the structure of the type and register
+                        // internal wasmparser ids with wit-parser ids. This is
+                        // necessary to ensure that anonymous types like
+                        // `list<u8>` defined in original definitions are
+                        // unified with anonymous types when duplicated inside
+                        // of worlds. Overall this prevents, for example, extra
+                        // `list<u8>` types from popping up when decoding. This
+                        // is not strictly necessary but assists with
+                        // roundtripping assertions during fuzzing.
+                        Some(id) => {
+                            log::debug!("type already exist");
+                            match referenced {
+                                types::ComponentAnyTypeId::Defined(ty) => {
+                                    self.register_defined(id, &self.types[ty])?;
+                                }
+                                types::ComponentAnyTypeId::Resource(_) => {}
+                                _ => unreachable!(),
+                            }
+                            let prev = self.type_map.insert(created, id);
+                            assert!(prev.is_none());
+                        }
+
+                        // If the name is not defined, however, then there's two
+                        // possibilities:
+                        //
+                        // * For package-local interfaces this is an error
+                        //   because the package-local interface defined
+                        //   everything already and this is referencing
+                        //   something that isn't defined.
+                        //
+                        // * For remote interfaces they're never fully declared
+                        //   so it's lazily filled in here. This means that the
+                        //   view of remote interfaces ends up being the minimal
+                        //   slice needed for this resolve, which is what's
+                        //   intended.
+                        None => {
+                            if is_local {
+                                bail!("instance type export `{name}` not defined in interface");
+                            }
+                            let id = self.register_type_export(
+                                name.as_str(),
+                                owner,
+                                referenced,
+                                created,
+                            )?;
+                            let prev = self.resolve.interfaces[interface]
+                                .types
+                                .insert(name.to_string(), id);
+                            assert!(prev.is_none());
+                        }
+                    }
+                }
+                types::ComponentEntityType::Instance(_) => todo!(),
+                types::ComponentEntityType::Component(_) => todo!(),
+            }
+        }
+        // let id = self.register_type_export(name, owner, referenced, created)?;
+        Ok(interface)
+    }
     /// Registers that the `name` provided is either imported interface from a
     /// foreign package or  referencing a previously defined interface in this
     /// package.
@@ -1042,6 +1085,7 @@ impl WitPackageDecoder<'_> {
         };
 
         let owner = TypeOwner::Interface(self.resolve.interfaces.next_id());
+        // let mut nested = Vec::new();
         for (name, ty) in ty.exports.iter() {
             match *ty {
                 types::ComponentEntityType::Type {
@@ -1062,6 +1106,11 @@ impl WitPackageDecoder<'_> {
                         .with_context(|| format!("failed to convert function '{name}'"))?;
                     let prev = interface.functions.insert(name.to_string(), func);
                     assert!(prev.is_none());
+                }
+                types::ComponentEntityType::Instance(inst) => {
+                    let ty = &self.types[inst];
+                    let iface = self.register_export(&name, &ty)?;
+                    interface.nested.insert(name.to_string(), iface);
                 }
                 _ => bail!("instance type export `{name}` is not a type or function"),
             };

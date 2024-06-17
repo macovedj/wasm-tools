@@ -271,7 +271,40 @@ impl InterfaceEncoder<'_> {
                 .unwrap()
                 .export(name, ComponentTypeRef::Func(ty));
         }
-        let instance = self.pop_instance();
+        let mut instance = self.pop_instance();
+        for (orig_name, iface_id) in &iface.nested {
+            let mut pkg_parts = orig_name.split("/");
+            let pkg = pkg_parts.next().expect("expected projection");
+            let iface_name = pkg_parts.next().expect("expected projection");
+            let mut parts = pkg.split(":");
+            let namespace = parts.next().expect("expected <namespace>:<id>");
+            let name = parts.next().expect("expected <namespace>:<id>");
+            let name = PackageName {
+                namespace: namespace.to_string(),
+                name: name.to_string(),
+                version: None,
+            };
+
+            let package_id = self.resolve.package_names.get(&name).unwrap();
+            let package = &self.resolve.packages[*package_id];
+            let nested = package.interfaces.get(iface_name).unwrap();
+            let nested_iface = &self.resolve.interfaces[*nested];
+            let mut inst = InterfaceEncoder::new(&self.resolve);
+            inst.push_instance();
+            inst.interface = Some(*nested);
+            inst.import_map.insert(*iface_id, 0);
+            for (_, id) in &nested_iface.types {
+                inst.encode_valtype(self.resolve, &Type::Id(*id))?;
+            }
+            let thing = instance.ty();
+            let nested = inst.pop_instance();
+            thing.instance(&nested);
+            instance.export(
+                orig_name,
+                ComponentTypeRef::Instance(instance.type_count() - 1),
+            );
+        }
+
         let idx = self.outer.type_count();
         self.outer.ty().instance(&instance);
         self.import_map.insert(interface, self.instances);
