@@ -40,12 +40,14 @@
   "interfaces": [
     {
       "name": "a",
+      "nested": {},
       "types": {},
       "functions": {},
       "package": 0
     },
     {
       "name": "b",
+      "nested": {},
       "types": {},
       "functions": {},
       "package": 0
@@ -55,6 +57,7 @@
   "packages": [
     {
       "name": "foo:foo",
+      "kind": "Implicit",
       "interfaces": {
         "a": 0,
         "b": 1

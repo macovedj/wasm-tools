@@ -25,6 +25,7 @@
   "interfaces": [
     {
       "name": null,
+      "nested": {},
       "types": {},
       "functions": {},
       "package": 0
@@ -34,6 +35,7 @@
   "packages": [
     {
       "name": "foo:foo",
+      "kind": "Implicit",
       "interfaces": {},
       "worlds": {
         "foo": 0

@@ -3,6 +3,7 @@
   "interfaces": [
     {
       "name": "types",
+      "nested": {},
       "types": {
         "t1": 0,
         "t2": 1,
@@ -765,6 +766,7 @@
   "packages": [
     {
       "name": "foo:types",
+      "kind": "Implicit",
       "interfaces": {
         "types": 0
       },

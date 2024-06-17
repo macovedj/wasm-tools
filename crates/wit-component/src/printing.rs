@@ -69,8 +69,7 @@ impl WitPrinter {
             }
 
             if has_multiple_packages {
-                self.output.push_str("{");
-                self.output.indent += 1
+                self.output.push_str(" {\n");
             } else {
                 self.print_semicolon();
                 self.output.push_str("\n\n");
@@ -79,9 +78,15 @@ impl WitPrinter {
             for (name, id) in pkg.interfaces.iter() {
                 self.print_docs(&resolve.interfaces[*id].docs);
                 self.print_stability(&resolve.interfaces[*id].stability);
+                let nested = &resolve.interfaces[*id].nested;
                 self.output.push_str("interface ");
                 self.print_name(name);
                 self.output.push_str(" {\n");
+                for item in nested {
+                    self.output.push_str("nest: ");
+                    self.print_name(item.0);
+                    self.output.push_str(";\n")
+                }
                 self.print_interface(resolve, *id)?;
                 writeln!(&mut self.output, "}}\n")?;
             }
@@ -98,7 +103,6 @@ impl WitPrinter {
 
             if has_multiple_packages {
                 self.output.push_str("}");
-                self.output.indent -= 1
             }
         }
 

@@ -126,36 +126,42 @@
   "interfaces": [
     {
       "name": "a",
+      "nested": {},
       "types": {},
       "functions": {},
       "package": 0
     },
     {
       "name": "b",
+      "nested": {},
       "types": {},
       "functions": {},
       "package": 0
     },
     {
       "name": "a",
+      "nested": {},
       "types": {},
       "functions": {},
       "package": 1
     },
     {
       "name": "b",
+      "nested": {},
       "types": {},
       "functions": {},
       "package": 1
     },
     {
       "name": "ai",
+      "nested": {},
       "types": {},
       "functions": {},
       "package": 2
     },
     {
       "name": "bi",
+      "nested": {},
       "types": {},
       "functions": {},
       "package": 2
@@ -165,6 +171,7 @@
   "packages": [
     {
       "name": "foo:bar",
+      "kind": "Implicit",
       "interfaces": {
         "a": 0,
         "b": 1
@@ -175,6 +182,7 @@
     },
     {
       "name": "foo:baz",
+      "kind": "Implicit",
       "interfaces": {
         "a": 2,
         "b": 3
@@ -185,6 +193,7 @@
     },
     {
       "name": "foo:root",
+      "kind": "Implicit",
       "interfaces": {
         "ai": 4,
         "bi": 5

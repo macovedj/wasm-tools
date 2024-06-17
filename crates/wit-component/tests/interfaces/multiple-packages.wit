@@ -1,0 +1,22 @@
+package foo:bar {
+  world this-world {
+    import another:thing/something;
+    import third:pkg/things;
+  }
+}
+
+package another:thing {
+  interface something {
+    record my-record {
+      foo: string
+    }
+  }
+}
+
+package third:pkg {
+  interface things {
+    record other-record {
+      foo: string
+    }
+  }
+}

@@ -3,6 +3,7 @@
   "interfaces": [
     {
       "name": "resources1",
+      "nested": {},
       "types": {
         "r1": 0
       },
@@ -69,6 +70,7 @@
   "packages": [
     {
       "name": "foo:resources1",
+      "kind": "Implicit",
       "interfaces": {
         "resources1": 0
       },

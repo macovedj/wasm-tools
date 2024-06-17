@@ -3,6 +3,7 @@
   "interfaces": [
     {
       "name": "foo",
+      "nested": {},
       "types": {
         "t": 0
       },
@@ -11,6 +12,7 @@
     },
     {
       "name": "foo",
+      "nested": {},
       "types": {
         "t": 1
       },
@@ -19,6 +21,7 @@
     },
     {
       "name": "foo",
+      "nested": {},
       "types": {
         "t": 2,
         "t2": 3
@@ -68,6 +71,7 @@
   "packages": [
     {
       "name": "a:a@1.0.0",
+      "kind": "Implicit",
       "interfaces": {
         "foo": 0
       },
@@ -75,6 +79,7 @@
     },
     {
       "name": "a:a@2.0.0",
+      "kind": "Implicit",
       "interfaces": {
         "foo": 1
       },
@@ -82,6 +87,7 @@
     },
     {
       "name": "foo:versions",
+      "kind": "Implicit",
       "interfaces": {
         "foo": 2
       },

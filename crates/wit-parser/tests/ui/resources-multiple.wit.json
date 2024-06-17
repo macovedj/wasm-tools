@@ -3,6 +3,7 @@
   "interfaces": [
     {
       "name": "resources-multiple",
+      "nested": {},
       "types": {
         "r1": 0
       },
@@ -272,6 +273,7 @@
   "packages": [
     {
       "name": "foo:resources-multiple",
+      "kind": "Implicit",
       "interfaces": {
         "resources-multiple": 0
       },

@@ -33,6 +33,7 @@
   "interfaces": [
     {
       "name": "types",
+      "nested": {},
       "types": {
         "a": 0
       },
@@ -41,6 +42,7 @@
     },
     {
       "name": "types",
+      "nested": {},
       "types": {
         "a": 1,
         "r": 2
@@ -86,6 +88,7 @@
   "packages": [
     {
       "name": "foo:dep2",
+      "kind": "Implicit",
       "interfaces": {
         "types": 0
       },
@@ -93,6 +96,7 @@
     },
     {
       "name": "foo:dep1",
+      "kind": "Implicit",
       "interfaces": {
         "types": 1
       },
@@ -100,6 +104,7 @@
     },
     {
       "name": "foo:bar",
+      "kind": "Explicit",
       "interfaces": {},
       "worlds": {
         "w-bar": 0
@@ -107,6 +112,7 @@
     },
     {
       "name": "foo:qux",
+      "kind": "Explicit",
       "interfaces": {},
       "worlds": {
         "w-qux": 1

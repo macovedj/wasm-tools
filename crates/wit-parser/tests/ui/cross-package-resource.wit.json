@@ -3,6 +3,7 @@
   "interfaces": [
     {
       "name": "foo",
+      "nested": {},
       "types": {
         "r": 0
       },
@@ -11,6 +12,7 @@
     },
     {
       "name": "foo",
+      "nested": {},
       "types": {
         "r": 1,
         "t": 2
@@ -51,6 +53,7 @@
   "packages": [
     {
       "name": "some:dep",
+      "kind": "Implicit",
       "interfaces": {
         "foo": 0
       },
@@ -58,6 +61,7 @@
     },
     {
       "name": "foo:bar",
+      "kind": "Implicit",
       "interfaces": {
         "foo": 1
       },

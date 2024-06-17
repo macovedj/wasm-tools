@@ -3,6 +3,7 @@
   "interfaces": [
     {
       "name": "wasi",
+      "nested": {},
       "types": {
         "clockid": 0,
         "timestamp": 1,
@@ -530,6 +531,7 @@
   "packages": [
     {
       "name": "wasi:filesystem",
+      "kind": "Implicit",
       "interfaces": {
         "wasi": 0
       },
