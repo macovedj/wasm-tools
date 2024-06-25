@@ -551,7 +551,6 @@ impl WitOpts {
 
         match Detect::from_bytes(&input) {
             Detect::WasmBinary | Detect::WasmText => {
-                dbg!("KNOWN");
                 // Use `wat` to possible translate the text format, and then
                 // afterwards use either `decode` or `metadata::decode` depending on
                 // if the input is a component or a core wasm module.
@@ -560,16 +559,13 @@ impl WitOpts {
                     e
                 })?;
                 if wasmparser::Parser::is_component(&input) {
-                    dbg!("COMPONENT");
                     wit_component::decode(&input)
                 } else {
-                    dbg!("NOT");
                     let (_wasm, bindgen) = wit_component::metadata::decode(&input)?;
                     Ok(DecodedWasm::Component(bindgen.resolve, bindgen.world))
                 }
             }
             Detect::Unknown => {
-                // dbg!("UNKNOWN");
                 // This is a single WIT file, so create the single-file package and
                 // return it.
                 let input = match std::str::from_utf8(&input) {
@@ -601,14 +597,6 @@ impl WitOpts {
     }
 
     fn emit_wit(&self, decoded: &DecodedWasm) -> Result<()> {
-        match decoded {
-            DecodedWasm::WitPackages(_, _) => {
-                dbg!("WAS WIT");
-            }
-            DecodedWasm::Component(_, _) => {
-                dbg!("WAS COMP");
-            }
-        }
         assert!(!self.wasm && !self.wat);
 
         let resolve = decoded.resolve();

@@ -31,15 +31,6 @@ pub fn encode_component(resolve: &Resolve, packages: &[PackageId]) -> Result<Com
         packages,
     };
     encoder.run()?;
-
-    for package in packages {
-        let package_metadata = PackageMetadata::extract(resolve, *package);
-        encoder.component.custom_section(&CustomSection {
-            name: PackageMetadata::SECTION_NAME.into(),
-            data: package_metadata.encode()?.into(),
-        });
-    }
-
     Ok(encoder.component)
 }
 
@@ -60,7 +51,7 @@ impl Encoder<'_> {
         // notably on the order that types are defined in to assist with
         // roundtripping.
         let mut names = NameMap::new();
-        for pkg in self.packages.iter() {
+        for pkg in self.packages {
             let package = &self.resolve.packages[*pkg];
             if let PackageKind::Explicit = package.kind {
                 let mut sub_encoder = Encoder {
@@ -68,6 +59,11 @@ impl Encoder<'_> {
                     resolve: self.resolve,
                     packages: self.packages,
                 };
+                let package_metadata = PackageMetadata::extract(self.resolve, *pkg);
+                sub_encoder.component.custom_section(&CustomSection {
+                    name: PackageMetadata::SECTION_NAME.into(),
+                    data: package_metadata.encode()?.into(),
+                });
                 for (name, &id) in self.resolve.packages[*pkg].interfaces.iter() {
                     let component_ty = sub_encoder.encode_interface(id, pkg)?;
                     let ty = sub_encoder.component.type_component(&component_ty);
@@ -99,12 +95,6 @@ impl Encoder<'_> {
                 }
                 let sub = self.component.component(sub_encoder.component);
                 names.append(sub, &package.name.to_string());
-                // self.component.export(
-                //     &format!("{}/{}", package.name.to_string(), "foo"),
-                //     ComponentExportKind::Component,
-                //     sub,
-                //     None,
-                // );
             } else {
                 for (name, &id) in self.resolve.packages[*pkg].interfaces.iter() {
                     let component_ty = self.encode_interface(id, pkg)?;
@@ -127,6 +117,11 @@ impl Encoder<'_> {
                     self.component
                         .export(name.as_ref(), ComponentExportKind::Type, ty, None);
                 }
+                let package_metadata = PackageMetadata::extract(self.resolve, *pkg);
+                self.component.custom_section(&CustomSection {
+                    name: PackageMetadata::SECTION_NAME.into(),
+                    data: package_metadata.encode()?.into(),
+                });
             }
         }
         let mut final_names = ComponentNameSection::new();

@@ -1,5 +1,6 @@
 (component
   (component $another:thing (;0;)
+    (@custom "package-docs" "\01{\22interfaces\22:{\22something\22:{\22docs\22:\22documenting an interface\22,\22types\22:{\22my-record\22:{\22stability\22:{\22stable\22:{\22since\22:\221.2.3\22}}}}}}}")
     (type (;0;)
       (component
         (type (;0;)
@@ -14,6 +15,7 @@
     (export (;1;) "something" (type 0))
   )
   (component $third:pkg (;1;)
+    (@custom "package-docs" "\01{\22interfaces\22:{\22things\22:{\22stability\22:{\22stable\22:{\22since\22:\221.2.3\22}},\22types\22:{\22other-record\22:{\22docs\22:\22documenting an type\22}}}}}")
     (type (;0;)
       (component
         (type (;0;)
@@ -28,6 +30,7 @@
     (export (;1;) "things" (type 0))
   )
   (component $foo:bar (;2;)
+    (@custom "package-docs" "\00{}")
     (type (;0;)
       (component
         (type (;0;)
@@ -53,9 +56,6 @@
     )
     (export (;1;) "this-world" (type 0))
   )
-  (@custom "package-docs" "\00{}")
-  (@custom "package-docs" "\00{}")
-  (@custom "package-docs" "\00{}")
   (@producers
     (processed-by "wit-component" "$CARGO_PKG_VERSION")
   )

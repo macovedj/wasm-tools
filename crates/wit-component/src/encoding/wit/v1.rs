@@ -57,7 +57,6 @@ impl Encoder<'_> {
         // decoding process where everyone's view of a foreign document agrees
         // notably on the order that types are defined in to assist with
         // roundtripping.
-
         let mut interfaces = IndexSet::new();
         for (_, id) in self.resolve.packages[self.package].interfaces.iter() {
             self.add_live_interfaces(&mut interfaces, *id);
@@ -74,11 +73,6 @@ impl Encoder<'_> {
                 assert!(first);
             }
         }
-
-        // Encode all interfaces, foreign and local, into this component type.
-        // Local interfaces get their functions defined as well and are
-        // exported. Foreign interfaces are imported and only have their types
-        // encoded.
         for (name, _world) in self.resolve.packages[self.package].worlds.iter() {
             let first = used_names.insert(name.clone());
             assert!(first);
@@ -101,24 +95,25 @@ impl Encoder<'_> {
                 encoder.push_instance();
                 for (_, id) in iface.types.iter() {
                     encoder.encode_valtype(self.resolve, &Type::Id(*id))?;
-                    let instance = encoder.pop_instance();
-                    let idx = encoder.outer.type_count();
-                    encoder.outer.ty().instance(&instance);
-                    encoder.import_map.insert(interface, encoder.instances);
-                    encoder.instances += 1;
-                    encoder.outer.import(&name, ComponentTypeRef::Instance(idx));
                 }
-            }
-            encoder.interface = None;
-
-            for (name, world) in self.resolve.packages[self.package].worlds.iter() {
-                let component_ty = encode_world(self.resolve, *world)?;
+                let instance = encoder.pop_instance();
                 let idx = encoder.outer.type_count();
-                encoder.outer.ty().component(&component_ty);
-                let id = self.resolve.packages[self.package].name.interface_id(name);
-                encoder.outer.export(&id, ComponentTypeRef::Component(idx));
+                encoder.outer.ty().instance(&instance);
+                encoder.import_map.insert(interface, encoder.instances);
+                encoder.instances += 1;
+                encoder.outer.import(&name, ComponentTypeRef::Instance(idx));
             }
         }
+        encoder.interface = None;
+
+        for (name, world) in self.resolve.packages[self.package].worlds.iter() {
+            let component_ty = encode_world(self.resolve, *world)?;
+            let idx = encoder.outer.type_count();
+            encoder.outer.ty().component(&component_ty);
+            let id = self.resolve.packages[self.package].name.interface_id(name);
+            encoder.outer.export(&id, ComponentTypeRef::Component(idx));
+        }
+
         let ty = self.component.type_component(&encoder.outer);
         let id = self.resolve.packages[self.package].name.interface_id("wit");
         self.component

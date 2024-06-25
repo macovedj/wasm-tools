@@ -76,7 +76,7 @@ pub struct Resolve {
     pub features: IndexSet<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(PartialEq, Clone, Debug, Serialize)]
 pub enum PackageKind {
     Explicit,
     Implicit,
@@ -86,7 +86,7 @@ pub enum PackageKind {
 /// A package is a collection of interfaces and worlds. Packages additionally
 /// have a unique identifier that affects generated components and uniquely
 /// identifiers this particular package.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Package {
     /// A unique name corresponding to this package.

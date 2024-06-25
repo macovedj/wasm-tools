@@ -54,7 +54,6 @@ fn run_test(path: &Path, is_dir: bool) -> Result<()> {
         resolve.append(UnresolvedPackageGroup::parse_file(path)?)?
     };
 
-    // for package in packages {
     assert_print(&resolve, &packages, path, is_dir)?;
 
     let features = WasmFeatures::default() | WasmFeatures::COMPONENT_MODEL;
