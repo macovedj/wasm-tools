@@ -21,7 +21,7 @@ struct CrlfFold<'a> {
 }
 
 /// A span, designating a range of bytes where a token is located.
-#[derive(Eq, PartialEq, Debug, Clone, Copy)]
+#[derive(Default, Eq, PartialEq, Debug, Clone, Copy)]
 pub struct Span {
     /// The start of the range.
     pub start: u32,

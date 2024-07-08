@@ -1,4 +1,4 @@
-use super::{ParamList, ResolverKindTag, ResultList, WorldOrInterface};
+use super::{ParamList, ResolverKind, ResultList, WorldOrInterface};
 use crate::ast::toposort::toposort;
 use crate::*;
 use anyhow::bail;
@@ -145,7 +145,7 @@ impl<'a> Resolver<'a> {
         Ok(())
     }
 
-    pub(crate) fn resolve(&mut self, kind: ResolverKindTag) -> Result<Option<UnresolvedPackage>> {
+    pub(crate) fn resolve(&mut self, kind: ResolverKind) -> Result<Option<UnresolvedPackage>> {
         // At least one of the WIT files must have a `package` annotation.
         let name = match &self.package_name {
             Some(name) => name.clone(),
@@ -208,8 +208,8 @@ impl<'a> Resolver<'a> {
         Ok(Some(UnresolvedPackage {
             name,
             kind: match kind {
-                ResolverKindTag::Explicit => PackageKind::Explicit,
-                ResolverKindTag::Implicit => PackageKind::Implicit,
+                ResolverKind::Explicit => PackageKind::Explicit,
+                ResolverKind::Implicit => PackageKind::Implicit,
             },
             docs: mem::take(&mut self.package_docs),
             worlds: mem::take(&mut self.worlds),
@@ -243,7 +243,7 @@ impl<'a> Resolver<'a> {
         self.package_name = Some(package.package_id.package_name());
         self.docs(&package.package_id.docs);
         self.decl_lists = vec![(PackageKind::Explicit, package.decl_list)];
-        self.resolve(ResolverKindTag::Explicit)
+        self.resolve(ResolverKind::Explicit)
     }
 
     /// Registers all foreign dependencies made within the ASTs provided.

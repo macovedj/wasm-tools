@@ -469,7 +469,7 @@ impl ComponentInfo {
                     pkg_names.push(name.clone());
                     let pkg = Package {
                         name: name.clone(),
-                        kind: PackageKind::Implicit,
+                        kind: PackageKind::Explicit,
                         docs: Docs::default(),
                         interfaces: fields.interfaces.clone(),
                         worlds: fields.worlds.clone(),
@@ -480,7 +480,7 @@ impl ComponentInfo {
                 } else {
                     let pkg = Package {
                         name: name.clone(),
-                        kind: PackageKind::Implicit,
+                        kind: PackageKind::Explicit,
                         docs: Docs::default(),
                         interfaces: fields.interfaces.clone(),
                         worlds: fields.worlds.clone(),
@@ -1110,7 +1110,7 @@ impl WitPackageDecoder<'_> {
             .entry(package_name.to_string())
             .or_insert_with(|| Package {
                 name: package_name.clone(),
-                kind: PackageKind::Implicit,
+                kind: PackageKind::Explicit,
                 docs: Default::default(),
                 interfaces: Default::default(),
                 worlds: Default::default(),
@@ -1683,7 +1683,7 @@ impl WitPackageDecoder<'_> {
 
             // .. and finally insert the packages, in their final topological
             // ordering, into the returned array.
-            for (_idx, (_url, pkg)) in deps {
+            for (_idx, (_, pkg)) in deps {
                 self.insert_package(pkg);
             }
             let id = self.insert_package(package.clone());
@@ -1732,7 +1732,9 @@ impl WitPackageDecoder<'_> {
 
         for (name, id) in interfaces {
             let prev = self.resolve.packages[pkg].interfaces.insert(name, id);
-            assert!(prev.is_none());
+            if kind == PackageKind::Implicit {
+                assert!(prev.is_none());
+            }
             self.resolve.interfaces[id].package = Some(pkg);
         }
 

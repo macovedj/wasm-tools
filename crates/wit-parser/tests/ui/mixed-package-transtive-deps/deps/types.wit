@@ -1,0 +1,25 @@
+package foo:dep0;
+
+interface types {
+  use foo:dep2/types.{a};
+  record re {
+    g: a 
+  }
+}
+
+package foo:dep1 {
+  interface types {
+    use foo:dep2/types.{a};
+    use foo:dep0/types.{re};
+
+    record r {
+      f: u8,
+    }
+  }
+}
+
+package foo:dep2 {
+  interface types {
+    resource a;
+  }
+}

@@ -80,19 +80,17 @@ fn load_test_wit(path: &Path) -> Result<(Resolve, WorldId)> {
 
     let test_wit_path = path.join("test.wit");
     let UnresolvedPackageGroup {
-        mut packages,
+        packages,
         source_map,
+        implicit,
     } = UnresolvedPackageGroup::parse_file(&test_wit_path)
         .context("failed to parse WIT package")?;
-    if packages.is_empty() {
+    if packages.is_empty() && implicit.is_none() {
         bail!("Files were completely empty - are you sure these are the files you're looking for?")
-    }
-    if packages.len() > 1 {
-        bail!("Multi-package targeting tests are not yet supported.")
     }
 
     let mut resolve = Resolve::default();
-    let package_id = resolve.push(packages.remove(0), &source_map)?;
+    let package_id = resolve.push(implicit.unwrap(), &source_map)?;
 
     let world_id = resolve
         .select_world(package_id, Some(TEST_TARGET_WORLD_ID))

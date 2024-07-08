@@ -120,6 +120,8 @@ pub struct UnresolvedPackage {
 /// Tracks a set of packages, all pulled from the same group of WIT source files.
 #[derive(Default)]
 pub struct UnresolvedPackageGroup {
+    /// Root implicit package
+    pub implicit: Option<UnresolvedPackage>,
     /// A set of packages that share source file(s).
     pub packages: Vec<UnresolvedPackage>,
 

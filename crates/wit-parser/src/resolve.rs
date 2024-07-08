@@ -76,7 +76,7 @@ pub struct Resolve {
     pub features: IndexSet<String>,
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum PackageKind {
     Explicit,
@@ -205,10 +205,14 @@ impl Resolve {
         let mut source_maps = Vec::new();
         for (i, unresolved_group) in unresolved_groups.into_iter().enumerate() {
             let UnresolvedPackageGroup {
+                implicit,
                 packages,
                 source_map,
             } = unresolved_group;
 
+            if let Some(imp) = implicit {
+                pkg_details_map.insert(imp.name.clone(), (imp, i));
+            }
             source_maps.push(source_map);
             for pkg in packages {
                 pkg_details_map.insert(pkg.name.clone(), (pkg, i));
@@ -1223,7 +1227,7 @@ impl Remap {
 
         let pkgid = resolve.packages.alloc(Package {
             name: unresolved.name.clone(),
-            kind: unresolved.kind.clone(),
+            kind: unresolved.kind,
             docs: unresolved.docs.clone(),
             interfaces: Default::default(),
             worlds: Default::default(),

@@ -142,10 +142,11 @@ fn encode(wat: &str, wit: Option<&str>) -> Result<Vec<u8>> {
     if let Some(wit) = wit {
         let mut resolve = Resolve::default();
         let UnresolvedPackageGroup {
-            mut packages,
             source_map,
+            implicit,
+            ..
         } = UnresolvedPackageGroup::parse(Path::new("wit"), wit)?;
-        let pkg = resolve.push(packages.remove(0), &source_map)?;
+        let pkg = resolve.push(implicit.unwrap(), &source_map)?;
         let world = resolve.select_world(pkg, None)?;
 
         wit_component::embed_component_metadata(

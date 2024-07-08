@@ -1,0 +1,5 @@
+package depends on itself
+     --> tests/ui/parse-fail/mixed-packages-cycle.wit:3:7
+      |
+    3 |   use foo:qux/i.{};
+      |       ^------

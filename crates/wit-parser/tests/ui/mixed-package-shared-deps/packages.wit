@@ -1,0 +1,17 @@
+package foo:root;
+
+package foo:bar {
+  world w-bar {
+    import foo:dep0/types;
+    import foo:dep1/types;
+    import foo:dep2/types;
+  }
+}
+
+package foo:qux {
+  world w-qux {
+    import foo:dep0/types;
+    import foo:dep1/types;
+    import foo:dep2/types;
+  }
+}
