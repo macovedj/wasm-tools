@@ -1,5 +1,7 @@
 package foo:foo;
 
+
+
 interface types {
   enum level {
     info,

@@ -1,5 +1,7 @@
 package root:component;
 
+
+
 world root {
   export foo:bar/a;
   export foo:bar/b;
@@ -9,3 +11,4 @@ world root {
     f: func() -> r;
   }
 }
+

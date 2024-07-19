@@ -1,5 +1,7 @@
 package foo:bar;
 
+
+
 package another:thing {
   /// documenting an interface
   interface something {
@@ -31,3 +33,4 @@ world this-world {
 
   export another:thing/something;
 }
+

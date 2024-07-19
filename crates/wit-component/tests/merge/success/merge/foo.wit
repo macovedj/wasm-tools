@@ -1,5 +1,7 @@
 package foo:foo;
 
+
+
 interface only-into {
   record r {
   }
@@ -45,3 +47,4 @@ world shared-world {
 
   export shared-items;
 }
+

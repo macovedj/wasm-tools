@@ -1,5 +1,7 @@
 package foo:foo;
 
+
+
 world foo {
   import some-interface: interface {
   }
@@ -11,9 +13,12 @@ world foo {
   export another-interface: interface {
   }
 }
+
 world just-import {
   import foo: func();
 }
+
 world just-export {
   export foo: func();
 }
+

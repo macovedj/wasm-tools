@@ -150,10 +150,11 @@ impl<'a> Resolver<'a> {
         let name = match &self.package_name {
             Some(name) => name.clone(),
             None => {
-                if self.decl_lists.is_empty() {
-                    return Ok(None);
-                }
-                bail!("no `package` header was found in any WIT file for this package")
+                // if self.decl_lists.is_empty() {
+                //     return Ok(None);
+                // }
+                return Ok(None);
+                // bail!("no `package` header was found in any WIT file for this package")
             }
         };
 

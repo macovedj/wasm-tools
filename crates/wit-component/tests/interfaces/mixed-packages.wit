@@ -6,7 +6,6 @@ world this-world {
   import third:pkg/things;
 }
 
-
 package another:thing {
   // documenting an interface
   interface something {

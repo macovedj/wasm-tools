@@ -1,5 +1,7 @@
 package foo:foo;
 
+
+
 world has-inline {
   import foo: interface {
   }
@@ -7,3 +9,4 @@ world has-inline {
   export bar: interface {
   }
 }
+

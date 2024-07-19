@@ -51,12 +51,16 @@ impl WitPrinter {
     }
 
     /// Print a set of one or more WIT packages into a string.
-    pub fn print(&mut self, resolve: &Resolve, pkg_ids: &[PackageId]) -> Result<String> {
+    pub fn print(
+        &mut self,
+        resolve: &Resolve,
+        pkg_ids: &[PackageId],
+        force_print_package_in_curlies: bool,
+    ) -> Result<String> {
         let implicit = pkg_ids.iter().find(|pkg| {
             let pkg = &resolve.packages[**pkg];
             pkg.kind == PackageKind::Implicit
         });
-
         if let Some(pkg) = implicit {
             let pkg = &resolve.packages[*pkg];
             self.print_docs(&pkg.docs);
@@ -68,6 +72,7 @@ impl WitPrinter {
                 self.output.push_str(&format!("@{version}"));
             }
             self.print_semicolon();
+            self.output.push_str("\n\n");
         }
         for (i, pkg_id) in pkg_ids.into_iter().enumerate() {
             if i > 0 {
@@ -133,10 +138,9 @@ impl WitPrinter {
                 self.print_name(name);
                 self.output.push_str(" {\n");
                 self.print_world(resolve, *id)?;
-                writeln!(&mut self.output, "}}")?;
+                writeln!(&mut self.output, "}}\n")?;
             }
         }
-
         Ok(std::mem::take(&mut self.output).into())
     }
 

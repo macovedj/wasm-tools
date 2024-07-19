@@ -1,5 +1,7 @@
 package foo:variants;
 
+
+
 interface variants {
   enum e1 {
     a,
@@ -93,3 +95,4 @@ interface variants {
 world variants-world {
   import variants;
 }
+

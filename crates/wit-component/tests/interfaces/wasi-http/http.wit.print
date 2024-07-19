@@ -1,5 +1,7 @@
 package wasi:http@0.2.0-rc-2023-12-05;
 
+
+
 /// This interface defines all of the types and methods for implementing
 /// HTTP Requests and Responses, both incoming and outgoing, as well as
 /// their headers, trailers, and bodies.
@@ -569,3 +571,4 @@ world proxy {
 
   export incoming-handler;
 }
+
