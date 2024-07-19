@@ -1,3 +1,3 @@
 Writing: %tmpdir/root.wit
-Writing: %tmpdir/deps/b.wit
-Writing: %tmpdir/deps/c.wit
+Writing: %tmpdir/deps/b/b.wit
+Writing: %tmpdir/deps/c/c.wit

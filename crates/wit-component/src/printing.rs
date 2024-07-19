@@ -51,58 +51,81 @@ impl WitPrinter {
     }
 
     /// Print a set of one or more WIT packages into a string.
-    pub fn print(
-        &mut self,
-        resolve: &Resolve,
-        pkg_ids: &[PackageId],
-        force_print_package_in_curlies: bool,
-    ) -> Result<String> {
-        let print_package_in_curlies = force_print_package_in_curlies || pkg_ids.len() > 1;
-        for (i, pkg_id) in pkg_ids.into_iter().enumerate() {
-            if i > 0 {
-                self.output.push_str("\n\n");
-            }
+    pub fn print(&mut self, resolve: &Resolve, pkgid: PackageId) -> Result<String> {
+        // let print_package_in_curlies = force_print_package_in_curlies || pkg_ids.len() > 1;
+        let pkg = &resolve.packages[pkgid];
+        self.print_docs(&pkg.docs);
+        self.output.push_str("package ");
+        self.print_name(&pkg.name.namespace);
+        self.output.push_str(":");
+        self.print_name(&pkg.name.name);
+        if let Some(version) = &pkg.name.version {
+            self.output.push_str(&format!("@{version}"));
+        }
+        self.print_semicolon();
+        self.output.push_str("\n\n");
+        for (name, id) in pkg.interfaces.iter() {
+            self.print_docs(&resolve.interfaces[*id].docs);
+            self.print_stability(&resolve.interfaces[*id].stability);
+            self.output.push_str("interface ");
+            self.print_name(name);
+            self.output.push_str(" {\n");
+            self.print_interface(resolve, *id)?;
+            writeln!(&mut self.output, "}}\n")?;
+        }
+        for (name, id) in pkg.worlds.iter() {
+            self.print_docs(&resolve.worlds[*id].docs);
+            self.print_stability(&resolve.worlds[*id].stability);
+            self.output.push_str("world ");
+            self.print_name(name);
+            self.output.push_str(" {\n");
+            self.print_world(resolve, *id)?;
+            writeln!(&mut self.output, "}}")?;
+            // for (i, pkg_id) in pkg_ids.into_iter().enumerate() {
+            //     if i > 0 {
+            //         self.output.push_str("\n\n");
+            //     }
 
-            let pkg = &resolve.packages[pkg_id.clone()];
-            self.print_docs(&pkg.docs);
-            self.output.push_str("package ");
-            self.print_name(&pkg.name.namespace);
-            self.output.push_str(":");
-            self.print_name(&pkg.name.name);
-            if let Some(version) = &pkg.name.version {
-                self.output.push_str(&format!("@{version}"));
-            }
+            //     let pkg = &resolve.packages[pkg_id.clone()];
+            //     self.print_docs(&pkg.docs);
+            //     self.output.push_str("package ");
+            //     self.print_name(&pkg.name.namespace);
+            //     self.output.push_str(":");
+            //     self.print_name(&pkg.name.name);
+            //     if let Some(version) = &pkg.name.version {
+            //         self.output.push_str(&format!("@{version}"));
+            //     }
 
-            if print_package_in_curlies {
-                self.output.push_str(" {\n");
-            } else {
-                self.print_semicolon();
-                self.output.push_str("\n\n");
-            }
+            //     if print_package_in_curlies {
+            //         self.output.push_str(" {\n");
+            //     } else {
+            //         self.print_semicolon();
+            //         self.output.push_str("\n\n");
+            //     }
 
-            for (name, id) in pkg.interfaces.iter() {
-                self.print_docs(&resolve.interfaces[*id].docs);
-                self.print_stability(&resolve.interfaces[*id].stability);
-                self.output.push_str("interface ");
-                self.print_name(name);
-                self.output.push_str(" {\n");
-                self.print_interface(resolve, *id)?;
-                writeln!(&mut self.output, "}}\n")?;
-            }
+            //     for (name, id) in pkg.interfaces.iter() {
+            //         self.print_docs(&resolve.interfaces[*id].docs);
+            //         self.print_stability(&resolve.interfaces[*id].stability);
+            //         self.output.push_str("interface ");
+            //         self.print_name(name);
+            //         self.output.push_str(" {\n");
+            //         self.print_interface(resolve, *id)?;
+            //         writeln!(&mut self.output, "}}\n")?;
+            //     }
 
-            for (name, id) in pkg.worlds.iter() {
-                self.print_docs(&resolve.worlds[*id].docs);
-                self.print_stability(&resolve.worlds[*id].stability);
-                self.output.push_str("world ");
-                self.print_name(name);
-                self.output.push_str(" {\n");
-                self.print_world(resolve, *id)?;
-                writeln!(&mut self.output, "}}")?;
-            }
+            //     for (name, id) in pkg.worlds.iter() {
+            //         self.print_docs(&resolve.worlds[*id].docs);
+            //         self.print_stability(&resolve.worlds[*id].stability);
+            //         self.output.push_str("world ");
+            //         self.print_name(name);
+            //         self.output.push_str(" {\n");
+            //         self.print_world(resolve, *id)?;
+            //         writeln!(&mut self.output, "}}")?;
+            //     }
 
-            if print_package_in_curlies {
-                self.output.push_str("}\n");
-            }
+            //     if print_package_in_curlies {
+            //         self.output.push_str("}\n");
+            //     }
         }
 
         Ok(std::mem::take(&mut self.output).into())

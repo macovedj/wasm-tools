@@ -183,11 +183,11 @@ impl Resolve {
     ///
     /// More information can also be found at [`Resolve::push_dir`] and
     /// [`Resolve::push_file`].
-    pub fn push_path(&mut self, path: impl AsRef<Path>) -> Result<(Vec<PackageId>, Vec<PathBuf>)> {
+    pub fn push_path(&mut self, path: impl AsRef<Path>) -> Result<(PackageId, Vec<PathBuf>)> {
         self._push_path(path.as_ref())
     }
 
-    fn _push_path(&mut self, path: &Path) -> Result<(Vec<PackageId>, Vec<PathBuf>)> {
+    fn _push_path(&mut self, path: &Path) -> Result<(PackageId, Vec<PathBuf>)> {
         if path.is_dir() {
             self.push_dir(path).with_context(|| {
                 format!(
@@ -204,7 +204,7 @@ impl Resolve {
     fn sort_unresolved_packages(
         &mut self,
         unresolved_groups: Vec<UnresolvedPackageGroup>,
-    ) -> Result<(Vec<PackageId>, Vec<PathBuf>)> {
+    ) -> Result<(PackageId, Vec<PathBuf>)> {
         let mut pkg_ids = Vec::new();
         let mut path_bufs = Vec::new();
         let mut pkg_details_map = BTreeMap::new();
@@ -255,7 +255,7 @@ impl Resolve {
             }
         }
 
-        Ok((pkg_ids, path_bufs))
+        Ok((pkg_ids[0], path_bufs))
     }
 
     /// Parses the filesystem directory at `path` as a WIT package and returns
@@ -293,7 +293,7 @@ impl Resolve {
     /// The second value returned here is the list of paths that were parsed
     /// when generating the return value. This can be useful for build systems
     /// that want to rebuild bindings whenever one of the files change.
-    pub fn push_dir(&mut self, path: impl AsRef<Path>) -> Result<(Vec<PackageId>, Vec<PathBuf>)> {
+    pub fn push_dir(&mut self, path: impl AsRef<Path>) -> Result<(PackageId, Vec<PathBuf>)> {
         let path = path.as_ref();
         let deps_path = path.join("deps");
         let unresolved_deps = self.parse_deps_dir(&deps_path).with_context(|| {
@@ -374,10 +374,10 @@ impl Resolve {
     /// In both situations the `PackageId`s of the resulting resolved packages
     /// are returned from this method. The return value is mostly useful in
     /// conjunction with [`Resolve::select_world`].
-    pub fn push_file(&mut self, path: impl AsRef<Path>) -> Result<Vec<PackageId>> {
+    pub fn push_file(&mut self, path: impl AsRef<Path>) -> Result<PackageId> {
         match self._push_file(path.as_ref())? {
             #[cfg(feature = "decoding")]
-            ParsedFile::Package(id) => Ok(vec![id]),
+            ParsedFile::Package(id) => Ok(id),
             ParsedFile::Unresolved(pkgs) => self.push_group(pkgs),
         }
     }
@@ -408,9 +408,9 @@ impl Resolve {
                     DecodedWasm::Component(..) => {
                         bail!("found an actual component instead of an encoded WIT package in wasm")
                     }
-                    DecodedWasm::WitPackages(resolve, pkgs) => {
+                    DecodedWasm::WitPackage(resolve, pkg) => {
                         let remap = self.merge(resolve)?;
-                        return Ok(ParsedFile::Package(remap.packages[pkgs[0].index()]));
+                        return Ok(ParsedFile::Package(remap.packages[pkg.index()]));
                     }
                 }
             }
@@ -451,10 +451,7 @@ impl Resolve {
     /// which corresponds to the package that was just inserted.
     ///
     /// The returned [`PackageId`]s are listed in topologically sorted order.
-    pub fn push_group(
-        &mut self,
-        unresolved_groups: UnresolvedPackageGroup,
-    ) -> Result<Vec<PackageId>> {
+    pub fn push_group(&mut self, unresolved_groups: UnresolvedPackageGroup) -> Result<PackageId> {
         let (pkg_ids, _) = self.sort_unresolved_packages(vec![unresolved_groups])?;
         Ok(pkg_ids)
     }
@@ -465,7 +462,7 @@ impl Resolve {
     /// The `path` provided is used for error messages but otherwise is not
     /// read. This method does not touch the filesystem. The `contents` provided
     /// are the contents of a WIT package.
-    pub fn push_str(&mut self, path: impl AsRef<Path>, contents: &str) -> Result<Vec<PackageId>> {
+    pub fn push_str(&mut self, path: impl AsRef<Path>, contents: &str) -> Result<PackageId> {
         self.push_group(UnresolvedPackageGroup::parse(path.as_ref(), contents)?)
     }
 
@@ -964,28 +961,28 @@ impl Resolve {
     ///     Ok(())
     /// }
     /// ```
-    pub fn select_world(&self, packages: &[PackageId], world: Option<&str>) -> Result<WorldId> {
-        let world_path = match world {
-            Some(world) => Some(
-                parse_use_path(world)
-                    .with_context(|| format!("failed to parse world specifier `{world}`"))?,
-            ),
-            None => None,
+    //
+    pub fn select_world(&self, pkg: PackageId, world: Option<&str>) -> Result<WorldId> {
+        let world = match world {
+            Some(world) => world,
+            None => {
+                let pkg = &self.packages[pkg];
+                match pkg.worlds.len() {
+                    0 => bail!("no worlds found in package `{}`", pkg.name),
+                    1 => return Ok(*pkg.worlds.values().next().unwrap()),
+                    _ => bail!(
+                        "multiple worlds found in package `{}`: one must be explicitly chosen",
+                        pkg.name
+                    ),
+                }
+            }
         };
 
-        let (pkg, world_name) = match world_path {
-            Some(ParsedUsePath::Name(name)) => match packages {
-                [] => bail!("no packages were found to locate the world `{name}` within"),
-                [one] => (*one, name),
-                [..] => {
-                    bail!(
-                        "the supplied WIT source files describe multiple packages; \
-                         please provide a fully-qualified world-specifier select \
-                         a world amongst these packages"
-                    )
-                }
-            },
-            Some(ParsedUsePath::Package(pkg, interface)) => {
+        let path = parse_use_path(world)
+            .with_context(|| format!("failed to parse world specifier `{world}`"))?;
+        let (pkg, world) = match path {
+            ParsedUsePath::Name(name) => (pkg, name),
+            ParsedUsePath::Package(pkg, interface) => {
                 let pkg = match self.package_names.get(&pkg) {
                     Some(pkg) => *pkg,
                     None => {
@@ -1000,7 +997,7 @@ impl Resolve {
                             let (c1, _) = candidate.unwrap();
                             bail!(
                                 "package name `{pkg}` is available at both \
-                                 versions {} and {} but which is not specified",
+                               versions {} and {} but which is not specified",
                                 c1.version.as_ref().unwrap(),
                                 c2.version.as_ref().unwrap(),
                             );
@@ -1011,36 +1008,14 @@ impl Resolve {
                         }
                     }
                 };
-                (pkg, interface.to_string())
+                (pkg, interface)
             }
-            None => match packages {
-                [] => bail!("no packages were specified nor is a world specified"),
-                [one] => {
-                    let pkg = &self.packages[*one];
-                    match pkg.worlds.len() {
-                        0 => bail!("no worlds found in package `{}`", pkg.name),
-                        1 => return Ok(*pkg.worlds.values().next().unwrap()),
-                        _ => bail!(
-                            "multiple worlds found in package `{}`, one must be explicitly chosen:{}",
-                            pkg.name,
-                            pkg.worlds.keys().map(|name| format!("\n  {name}")).collect::<String>()
-                        ),
-                    }
-                }
-                [..] => {
-                    bail!(
-                        "the supplied WIT source files describe multiple packages; \
-                         please provide a fully-qualified world-specifier select \
-                         a world amongst these packages"
-                    )
-                }
-            },
         };
         let pkg = &self.packages[pkg];
         pkg.worlds
-            .get(&world_name)
+            .get(&world)
             .copied()
-            .ok_or_else(|| anyhow!("no world named `{world_name}` in package"))
+            .ok_or_else(|| anyhow!("no world named `{world}` in package"))
     }
 
     /// Assigns a human readable name to the `WorldKey` specified.
@@ -2722,19 +2697,19 @@ mod tests {
             "#,
         )?;
 
-        assert!(resolve.select_world(&dummy, None).is_ok());
-        assert!(resolve.select_world(&dummy, Some("xx")).is_err());
-        assert!(resolve.select_world(&dummy, Some("")).is_err());
-        assert!(resolve.select_world(&dummy, Some("foo:bar/foo")).is_ok());
+        assert!(resolve.select_world(dummy, None).is_ok());
+        assert!(resolve.select_world(dummy, Some("xx")).is_err());
+        assert!(resolve.select_world(dummy, Some("")).is_err());
+        assert!(resolve.select_world(dummy, Some("foo:bar/foo")).is_ok());
         assert!(resolve
-            .select_world(&dummy, Some("foo:bar/foo@0.1.0"))
+            .select_world(dummy, Some("foo:bar/foo@0.1.0"))
             .is_ok());
-        assert!(resolve.select_world(&dummy, Some("foo:baz/foo")).is_err());
+        assert!(resolve.select_world(dummy, Some("foo:baz/foo")).is_err());
         assert!(resolve
-            .select_world(&dummy, Some("foo:baz/foo@0.1.0"))
+            .select_world(dummy, Some("foo:baz/foo@0.1.0"))
             .is_ok());
         assert!(resolve
-            .select_world(&dummy, Some("foo:baz/foo@0.2.0"))
+            .select_world(dummy, Some("foo:baz/foo@0.2.0"))
             .is_ok());
         Ok(())
     }
