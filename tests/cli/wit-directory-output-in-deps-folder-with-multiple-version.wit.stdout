@@ -4,13 +4,11 @@ package a:b {
 
 }
 
-
 package a:b@0.2.0 {
   interface foo {
   }
 
 }
-
 
 package a:c {
   world a {

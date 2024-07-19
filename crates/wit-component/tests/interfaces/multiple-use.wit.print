@@ -1,5 +1,7 @@
 package foo:multiuse;
 
+
+
 interface foo {
   type t1 = u8;
 

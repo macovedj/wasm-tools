@@ -1,5 +1,7 @@
 package foo:foo;
 
+
+
 interface foo {
   use foo:dep/foo.{ty};
 }
@@ -7,3 +9,4 @@ interface foo {
 world bar {
   import foo:dep/foo;
 }
+

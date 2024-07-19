@@ -1,5 +1,7 @@
 package foo:foo;
 
+
+
 interface foo {
   record r {
     s: string,
@@ -29,3 +31,4 @@ interface foo {
 world foo-world {
   import foo;
 }
+

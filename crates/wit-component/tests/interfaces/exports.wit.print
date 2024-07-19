@@ -1,5 +1,7 @@
 package foo:foo;
 
+
+
 interface foo {
   record my-struct {
     a: u32,
@@ -11,3 +13,4 @@ interface foo {
 world export-foo {
   export foo;
 }
+

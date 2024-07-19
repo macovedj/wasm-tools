@@ -80,16 +80,26 @@ pub struct Resolve {
     pub all_features: bool,
 }
 
+#[derive(Eq, PartialEq, Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum PackageKind {
+    Explicit,
+    Implicit,
+}
+
 /// A WIT package within a `Resolve`.
 ///
 /// A package is a collection of interfaces and worlds. Packages additionally
 /// have a unique identifier that affects generated components and uniquely
 /// identifiers this particular package.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Package {
     /// A unique name corresponding to this package.
     pub name: PackageName,
+
+    /// Kind
+    pub kind: PackageKind,
 
     /// Documentation associated with this package.
     #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Docs::is_empty"))]
@@ -211,10 +221,14 @@ impl Resolve {
         let mut source_maps = Vec::new();
         for (i, unresolved_group) in unresolved_groups.into_iter().enumerate() {
             let UnresolvedPackageGroup {
+                implicit,
                 packages,
                 source_map,
             } = unresolved_group;
 
+            if let Some(imp) = implicit {
+                pkg_details_map.insert(imp.name.clone(), (imp, i));
+            }
             source_maps.push(source_map);
             for pkg in packages {
                 pkg_details_map.insert(pkg.name.clone(), (pkg, i));
@@ -1387,6 +1401,7 @@ impl Remap {
 
         let pkgid = resolve.packages.alloc(Package {
             name: unresolved.name.clone(),
+            kind: unresolved.kind,
             docs: unresolved.docs.clone(),
             interfaces: Default::default(),
             worlds: Default::default(),

@@ -1,5 +1,8 @@
 package root:component;
 
+
+
 world root {
   export foo:foo/a;
 }
+

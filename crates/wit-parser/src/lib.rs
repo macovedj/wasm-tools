@@ -21,7 +21,7 @@ pub use ast::{parse_use_path, ParsedUsePath};
 mod sizealign;
 pub use sizealign::*;
 mod resolve;
-pub use resolve::{Package, PackageId, Remap, Resolve};
+pub use resolve::{Package, PackageId, PackageKind, Remap, Resolve};
 mod live;
 pub use live::LiveTypes;
 
@@ -72,6 +72,9 @@ pub struct UnresolvedPackage {
     /// The namespace, name, and version information for this package.
     pub name: PackageName,
 
+    /// Kind
+    pub kind: PackageKind,
+
     /// All worlds from all documents within this package.
     ///
     /// Each world lists the document that it is from.
@@ -117,6 +120,8 @@ pub struct UnresolvedPackage {
 /// Tracks a set of packages, all pulled from the same group of WIT source files.
 #[derive(Default)]
 pub struct UnresolvedPackageGroup {
+    /// Root implicit package
+    pub implicit: Option<UnresolvedPackage>,
     /// A set of packages that share source file(s).
     pub packages: Vec<UnresolvedPackage>,
 

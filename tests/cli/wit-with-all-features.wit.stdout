@@ -1,6 +1,8 @@
 /// RUN: component wit --all-features %
 package a:b;
 
+
+
 @unstable(feature = foo)
 interface foo {
   @unstable(feature = foo)

@@ -1,7 +1,10 @@
 package root:component;
 
+
+
 world root {
   import foo: interface {
     log: func(s: string);
   }
 }
+

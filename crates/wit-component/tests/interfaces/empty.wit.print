@@ -1,5 +1,7 @@
 package foo:empty;
 
+
+
 interface empty {
 }
 
@@ -12,5 +14,7 @@ world empty-world {
   export empty2: interface {
   }
 }
+
 world actually-empty-world {
 }
+

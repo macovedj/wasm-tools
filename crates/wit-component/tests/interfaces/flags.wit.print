@@ -1,5 +1,7 @@
 package foo:%flags;
 
+
+
 interface imports {
   flags flag1 {
     b0,
@@ -98,3 +100,4 @@ interface imports {
 world flags-world {
   import imports;
 }
+

@@ -1,6 +1,8 @@
 /// RUN: component wit %
 package a:b;
 
+
+
 interface foo {
   type t = u32;
 }
@@ -21,6 +23,7 @@ world x {
   @since(version = 1.0.0)
   import baz;
 }
+
 world y {
   @since(version = 1.0.0)
   import foo;
@@ -30,3 +33,4 @@ world y {
   @since(version = 1.0.0)
   export baz;
 }
+

@@ -1,8 +1,5 @@
-package root:root {
-  world root {
-    import bar:bar/my-interface;
-  }
-}
+package root:root;
+
 
 
 package bar:bar {
@@ -14,3 +11,8 @@ package bar:bar {
     import my-interface;
   }
 }
+
+world root {
+  import bar:bar/my-interface;
+}
+

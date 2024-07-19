@@ -1,5 +1,7 @@
 package foo:foo;
 
+
+
 interface shared1 {
   type t1 = u8;
 }
@@ -18,3 +20,4 @@ world w1 {
     use shared2.{t2};
   }
 }
+

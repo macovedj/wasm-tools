@@ -1,5 +1,7 @@
 package foo:foo;
 
+
+
 interface shared-items {
   enum the-enum {
     a,
@@ -15,6 +17,7 @@ world w1 {
     use shared-items.{the-enum};
   }
 }
+
 world w2 {
   import shared-items;
   import foo: interface {
@@ -25,6 +28,7 @@ world w2 {
     use shared-items.{the-enum};
   }
 }
+
 world w3 {
   import shared-items;
 
@@ -32,3 +36,4 @@ world w3 {
     use shared-items.{the-enum};
   }
 }
+

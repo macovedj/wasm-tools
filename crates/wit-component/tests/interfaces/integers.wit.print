@@ -1,5 +1,7 @@
 package foo:foo;
 
+
+
 interface integers {
   a1: func(x: u8);
 
@@ -43,3 +45,4 @@ interface integers {
 world integers-world {
   import integers;
 }
+

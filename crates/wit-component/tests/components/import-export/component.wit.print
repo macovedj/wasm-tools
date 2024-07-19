@@ -1,5 +1,7 @@
 package root:component;
 
+
+
 world root {
   import foo: interface {
     a: func() -> string;
@@ -12,3 +14,4 @@ world root {
     b: func() -> string;
   }
 }
+

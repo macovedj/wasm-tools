@@ -1,5 +1,7 @@
 package foo:foo;
 
+
+
 interface import-me {
   type foo = u32;
 }
@@ -15,6 +17,7 @@ world simple {
 
   export b: func(a: foo) -> bar;
 }
+
 world with-imports {
   import import-me;
   import a: func(a: foo);
@@ -22,3 +25,4 @@ world with-imports {
 
   export b: func(a: foo);
 }
+

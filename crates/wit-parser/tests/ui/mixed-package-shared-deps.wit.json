@@ -1,0 +1,117 @@
+{
+  "worlds": [
+    {
+      "name": "w-bar",
+      "imports": {
+        "interface-0": {
+          "interface": {
+            "id": 0
+          }
+        },
+        "interface-1": {
+          "interface": {
+            "id": 1
+          }
+        },
+        "interface-2": {
+          "interface": {
+            "id": 2
+          }
+        }
+      },
+      "exports": {},
+      "package": 3
+    },
+    {
+      "name": "w-qux",
+      "imports": {
+        "interface-0": {
+          "interface": {
+            "id": 0
+          }
+        },
+        "interface-1": {
+          "interface": {
+            "id": 1
+          }
+        },
+        "interface-2": {
+          "interface": {
+            "id": 2
+          }
+        }
+      },
+      "exports": {},
+      "package": 4
+    }
+  ],
+  "interfaces": [
+    {
+      "name": "types",
+      "types": {},
+      "functions": {},
+      "package": 0
+    },
+    {
+      "name": "types",
+      "types": {},
+      "functions": {},
+      "package": 1
+    },
+    {
+      "name": "types",
+      "types": {},
+      "functions": {},
+      "package": 2
+    }
+  ],
+  "types": [],
+  "packages": [
+    {
+      "name": "foo:dep0",
+      "kind": "Implicit",
+      "interfaces": {
+        "types": 0
+      },
+      "worlds": {}
+    },
+    {
+      "name": "foo:dep1",
+      "kind": "Explicit",
+      "interfaces": {
+        "types": 1
+      },
+      "worlds": {}
+    },
+    {
+      "name": "foo:dep2",
+      "kind": "Explicit",
+      "interfaces": {
+        "types": 2
+      },
+      "worlds": {}
+    },
+    {
+      "name": "foo:bar",
+      "kind": "Explicit",
+      "interfaces": {},
+      "worlds": {
+        "w-bar": 0
+      }
+    },
+    {
+      "name": "foo:qux",
+      "kind": "Explicit",
+      "interfaces": {},
+      "worlds": {
+        "w-qux": 1
+      }
+    },
+    {
+      "name": "foo:root",
+      "kind": "Implicit",
+      "interfaces": {},
+      "worlds": {}
+    }
+  ]
+}

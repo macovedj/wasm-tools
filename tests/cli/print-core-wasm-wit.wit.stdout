@@ -1,8 +1,5 @@
-package root:root {
-  world root {
-    import foo:foo/my-interface;
-  }
-}
+package root:root;
+
 
 
 package foo:foo {
@@ -14,3 +11,8 @@ package foo:foo {
     import my-interface;
   }
 }
+
+world root {
+  import foo:foo/my-interface;
+}
+

@@ -1,0 +1,193 @@
+{
+  "worlds": [
+    {
+      "name": "w",
+      "imports": {
+        "interface-0": {
+          "interface": {
+            "id": 0
+          }
+        },
+        "imp": {
+          "interface": {
+            "id": 1
+          }
+        }
+      },
+      "exports": {},
+      "package": 0
+    },
+    {
+      "name": "w",
+      "imports": {
+        "interface-2": {
+          "interface": {
+            "id": 2
+          }
+        },
+        "imp": {
+          "interface": {
+            "id": 3
+          }
+        }
+      },
+      "exports": {},
+      "package": 1
+    },
+    {
+      "name": "w",
+      "imports": {
+        "interface-4": {
+          "interface": {
+            "id": 4
+          }
+        },
+        "imp": {
+          "interface": {
+            "id": 5
+          }
+        }
+      },
+      "exports": {},
+      "package": 2
+    }
+  ],
+  "interfaces": [
+    {
+      "name": "i",
+      "types": {
+        "a": 0
+      },
+      "functions": {},
+      "package": 0
+    },
+    {
+      "name": null,
+      "types": {
+        "a": 1
+      },
+      "functions": {},
+      "package": 0
+    },
+    {
+      "name": "i",
+      "types": {
+        "a": 2
+      },
+      "functions": {},
+      "package": 1
+    },
+    {
+      "name": null,
+      "types": {
+        "a": 3
+      },
+      "functions": {},
+      "package": 1
+    },
+    {
+      "name": "i",
+      "types": {
+        "a": 4
+      },
+      "functions": {},
+      "package": 2
+    },
+    {
+      "name": null,
+      "types": {
+        "a": 5
+      },
+      "functions": {},
+      "package": 2
+    }
+  ],
+  "types": [
+    {
+      "name": "a",
+      "kind": {
+        "type": "u32"
+      },
+      "owner": {
+        "interface": 0
+      }
+    },
+    {
+      "name": "a",
+      "kind": {
+        "type": 0
+      },
+      "owner": {
+        "interface": 1
+      }
+    },
+    {
+      "name": "a",
+      "kind": {
+        "type": "u32"
+      },
+      "owner": {
+        "interface": 2
+      }
+    },
+    {
+      "name": "a",
+      "kind": {
+        "type": 2
+      },
+      "owner": {
+        "interface": 3
+      }
+    },
+    {
+      "name": "a",
+      "kind": {
+        "type": "u32"
+      },
+      "owner": {
+        "interface": 4
+      }
+    },
+    {
+      "name": "a",
+      "kind": {
+        "type": 4
+      },
+      "owner": {
+        "interface": 5
+      }
+    }
+  ],
+  "packages": [
+    {
+      "name": "bar:name",
+      "kind": "Explicit",
+      "interfaces": {
+        "i": 0
+      },
+      "worlds": {
+        "w": 0
+      }
+    },
+    {
+      "name": "foo:name",
+      "kind": "Explicit",
+      "interfaces": {
+        "i": 2
+      },
+      "worlds": {
+        "w": 1
+      }
+    },
+    {
+      "name": "foo:root",
+      "kind": "Implicit",
+      "interfaces": {
+        "i": 4
+      },
+      "worlds": {
+        "w": 2
+      }
+    }
+  ]
+}

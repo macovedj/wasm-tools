@@ -4,7 +4,6 @@ package a:c {
 
 }
 
-
 package a:b {
   interface foo {
   }

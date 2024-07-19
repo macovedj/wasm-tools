@@ -1,0 +1,11 @@
+package foo:bar;
+
+interface foo {
+  type thing = string;
+}
+
+package foo:bar;
+
+interface baz {
+  type thing = string;
+}

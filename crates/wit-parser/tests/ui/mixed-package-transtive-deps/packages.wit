@@ -1,0 +1,21 @@
+package foo:root;
+
+interface i0 {
+  use foo:dep1/types.{r};
+}
+
+world w-root {
+  import foo:dep0/types;
+}
+
+package foo:bar {
+  world w-bar {
+    import foo:dep1/types;
+  }
+}
+
+package foo:qux {
+  world w-qux {
+    import foo:dep2/types;
+  }
+}

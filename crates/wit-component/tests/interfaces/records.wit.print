@@ -1,5 +1,7 @@
 package foo:records;
 
+
+
 interface records {
   record single {
     f: u8,
@@ -62,3 +64,4 @@ world records-world {
 
   export records;
 }
+

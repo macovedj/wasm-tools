@@ -1,6 +1,8 @@
 /// RUN: component wit --features foo %
 package a:b;
 
+
+
 @unstable(feature = foo)
 interface foo {
   @unstable(feature = foo)
@@ -53,3 +55,4 @@ world the-world {
   @unstable(feature = foo)
   export bar;
 }
+
