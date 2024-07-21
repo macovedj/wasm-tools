@@ -1,3 +1,7 @@
+use std::path::Path;
+
+use wit_parser::UnresolvedPackage;
+
 use {
     anyhow::{Context, Result},
     wit_component::StringEncoding,
@@ -140,7 +144,7 @@ fn encode(wat: &str, wit: Option<&str>) -> Result<Vec<u8>> {
 
     if let Some(wit) = wit {
         let mut resolve = Resolve::default();
-        let pkg = resolve.push_str("test.wit", wit)?;
+        let pkg = resolve.push(UnresolvedPackage::parse(Path::new("wit"), wit)?)?;
         let world = resolve.select_world(pkg, None)?;
 
         wit_component::embed_component_metadata(

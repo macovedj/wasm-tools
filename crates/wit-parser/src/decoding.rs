@@ -2,7 +2,6 @@ use crate::*;
 use anyhow::{anyhow, bail};
 use indexmap::IndexSet;
 use std::mem;
-use std::slice;
 use std::{collections::HashMap, io::Read};
 use wasmparser::Chunk;
 use wasmparser::{

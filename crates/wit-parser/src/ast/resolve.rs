@@ -174,6 +174,7 @@ impl<'a> Resolver<'a> {
             for item in decl_list.items.iter() {
                 match item {
                     ast::AstItem::Interface(iface) => {
+                        dbg!(&iface.name.name);
                         let id = match self.ast_items[i][iface.name.name] {
                             AstItem::Interface(id) => id,
                             AstItem::World(_) => unreachable!(),
@@ -181,6 +182,7 @@ impl<'a> Resolver<'a> {
                         iface_id_to_ast.insert(id, (iface, i));
                     }
                     ast::AstItem::World(world) => {
+                        dbg!(&world.name.name);
                         let id = match self.ast_items[i][world.name.name] {
                             AstItem::World(id) => id,
                             AstItem::Interface(_) => unreachable!(),
@@ -193,13 +195,17 @@ impl<'a> Resolver<'a> {
         }
 
         for id in iface_order {
+            dbg!("IFACE ORDER");
             let (interface, i) = &iface_id_to_ast[&id];
+            dbg!(&interface.name.name);
             self.cur_ast_index = *i;
             self.resolve_interface(id, &interface.items, &interface.docs, &interface.attributes)?;
         }
 
         for id in world_order {
+            dbg!("WORLD ORDER");
             let (world, i) = &world_id_to_ast[&id];
+            dbg!(&world.name.name);
             self.cur_ast_index = *i;
             self.resolve_world(id, world)?;
         }
@@ -227,6 +233,7 @@ impl<'a> Resolver<'a> {
             world_spans: mem::take(&mut self.world_spans),
             type_spans: mem::take(&mut self.type_spans),
             foreign_dep_spans: mem::take(&mut self.foreign_dep_spans),
+            source_map: SourceMap::default(),
             required_resource_types: mem::take(&mut self.required_resource_types),
         }))
     }
@@ -264,6 +271,8 @@ impl<'a> Resolver<'a> {
                     let id = *deps.entry(name.name).or_insert_with(|| {
                         match world_or_iface {
                             WorldOrInterface::World => {
+                                dbg!("WORLD");
+                                dbg!(&name.name);
                                 log::trace!(
                                     "creating a world for foreign dep: {}/{}",
                                     id.package_name(),
@@ -272,6 +281,8 @@ impl<'a> Resolver<'a> {
                                 AstItem::World(self.alloc_world(name.span))
                             }
                             WorldOrInterface::Interface | WorldOrInterface::Unknown => {
+                                dbg!("NOT WORLD");
+                                dbg!(&name.name);
                                 // Currently top-level `use` always assumes an interface, so the
                                 // `Unknown` case is the same as `Interface`.
                                 log::trace!(
@@ -352,6 +363,7 @@ impl<'a> Resolver<'a> {
             for item in decl_list.items.iter() {
                 match item {
                     ast::AstItem::Interface(i) => {
+                        dbg!(&i.name.name);
                         if package_items.insert(i.name.name, i.name.span).is_some() {
                             bail!(Error::new(
                                 i.name.span,
@@ -366,6 +378,7 @@ impl<'a> Resolver<'a> {
                         assert!(prev.is_none());
                     }
                     ast::AstItem::World(w) => {
+                        dbg!(&w.name.name);
                         if package_items.insert(w.name.name, w.name.span).is_some() {
                             bail!(Error::new(
                                 w.name.span,

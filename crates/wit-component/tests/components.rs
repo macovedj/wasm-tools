@@ -4,7 +4,7 @@ use pretty_assertions::assert_eq;
 use std::{borrow::Cow, fs, path::Path};
 use wasm_encoder::{Encode, Section};
 use wit_component::{ComponentEncoder, DecodedWasm, Linker, StringEncoding, WitPrinter};
-use wit_parser::{PackageId, Resolve, UnresolvedPackageGroup};
+use wit_parser::{PackageId, Resolve, UnresolvedPackage};
 
 /// Tests the encoding of components.
 ///
@@ -75,7 +75,6 @@ fn main() -> Result<()> {
 
 fn run_test(path: &Path) -> Result<()> {
     let test_case = path.file_stem().unwrap().to_str().unwrap();
-    dbg!(&test_case);
 
     let mut resolve = Resolve::default();
     let (pkg, _) = resolve
@@ -163,8 +162,7 @@ fn run_test(path: &Path) -> Result<()> {
         .context("failed to print WIT")?;
     assert_output(&wit, &component_wit_path)?;
 
-    UnresolvedPackageGroup::parse(&component_wit_path, &wit)
-        .context("failed to parse printed WIT")?;
+    UnresolvedPackage::parse(&component_wit_path, &wit).context("failed to parse printed WIT")?;
 
     // Check that the producer data got piped through properly
     let metadata = wasm_metadata::Metadata::from_binary(&bytes)?;

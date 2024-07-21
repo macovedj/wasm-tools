@@ -13,7 +13,7 @@ use wat::Detect;
 use wit_component::{
     embed_component_metadata, ComponentEncoder, DecodedWasm, Linker, StringEncoding, WitPrinter,
 };
-use wit_parser::{PackageId, Resolve};
+use wit_parser::{PackageId, Resolve, UnresolvedPackage};
 
 /// WebAssembly wit-based component tooling.
 #[derive(Parser)]
@@ -206,6 +206,7 @@ impl WitResolve {
 
     fn load(&self) -> Result<(Resolve, PackageId)> {
         let mut resolve = Self::resolve_with_features(&self.features, self.all_features);
+        dbg!("EXECUTION");
         let (pkg_ids, _) = resolve.push_path(&self.wit)?;
         Ok((resolve, pkg_ids))
     }
@@ -587,7 +588,8 @@ impl WitOpts {
                 };
                 let mut resolve =
                     WitResolve::resolve_with_features(&self.features, self.all_features);
-                let id = resolve.push_str(path, input)?;
+                let pkg = UnresolvedPackage::parse(path, input)?;
+                let id = resolve.push(pkg)?;
                 Ok(DecodedWasm::WitPackage(resolve, id))
             }
         }

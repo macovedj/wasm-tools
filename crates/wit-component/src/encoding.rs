@@ -2130,6 +2130,10 @@ impl ComponentEncoder {
 
 #[cfg(all(test, feature = "dummy-module"))]
 mod test {
+    use std::path::Path;
+
+    use wit_parser::UnresolvedPackage;
+
     use super::*;
     use crate::{dummy_module, embed_component_metadata};
 
@@ -2137,9 +2141,10 @@ mod test {
     fn it_renames_imports() {
         let mut resolve = Resolve::new();
         let pkg = resolve
-            .push_str(
-                "test.wit",
-                r#"
+            .push(
+                UnresolvedPackage::parse(
+                    Path::new("test.wit"),
+                    r#"
 package test:wit;
 
 interface i {
@@ -2153,6 +2158,8 @@ world test {
     }
 }
 "#,
+                )
+                .unwrap(),
             )
             .unwrap();
         let world = resolve.select_world(pkg, None).unwrap();

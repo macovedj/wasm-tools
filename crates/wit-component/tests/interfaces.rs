@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 use wasmparser::WasmFeatures;
 use wit_component::WitPrinter;
-use wit_parser::{PackageId, Resolve, UnresolvedPackage, UnresolvedPackageGroup};
+use wit_parser::{PackageId, Resolve, UnresolvedPackage};
 
 /// Tests the encoding of a WIT package as a WebAssembly binary.
 ///
@@ -95,7 +95,8 @@ fn assert_print(resolve: &Resolve, package: PackageId, path: &Path, is_dir: bool
     };
     let output = WitPrinter::default().print(resolve, package)?;
     assert_output(&expected, &output)?;
-    UnresolvedPackageGroup::parse("foo.wit", &output).context("failed to parse printed output")?;
+    UnresolvedPackage::parse("foo.wit".as_ref(), &output)
+        .context("failed to parse printed output")?;
 
     Ok(())
 }

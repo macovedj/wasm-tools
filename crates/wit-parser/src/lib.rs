@@ -111,17 +111,80 @@ pub struct UnresolvedPackage {
     world_spans: Vec<WorldSpan>,
     type_spans: Vec<Span>,
     foreign_dep_spans: Vec<Span>,
+    source_map: SourceMap,
     required_resource_types: Vec<(TypeId, Span)>,
 }
 
-/// Tracks a set of packages, all pulled from the same group of WIT source files.
-#[derive(Default)]
-pub struct UnresolvedPackageGroup {
-    /// A set of packages that share source file(s).
-    pub packages: Vec<UnresolvedPackage>,
+impl UnresolvedPackage {
+    /// Parses the given string as a wit document.
+    ///
+    /// The `path` argument is used for error reporting. The `contents` provided
+    /// will not be able to use `pkg` use paths to other documents.
+    pub fn parse(path: &Path, contents: &str) -> Result<Self> {
+        let mut map = SourceMap::default();
+        map.push(path, contents);
+        map.parse()
+    }
 
-    /// A set of processed source files from which these packages have been parsed.
-    pub source_map: SourceMap,
+    /// Parse a WIT package at the provided path.
+    ///
+    /// The path provided is inferred whether it's a file or a directory. A file
+    /// is parsed with [`UnresolvedPackage::parse_file`] and a directory is
+    /// parsed with [`UnresolvedPackage::parse_dir`].
+    pub fn parse_path(path: &Path) -> Result<Self> {
+        if path.is_dir() {
+            UnresolvedPackage::parse_dir(path)
+        } else {
+            UnresolvedPackage::parse_file(path)
+        }
+    }
+
+    /// Parses a WIT package from the file provided.
+    ///
+    /// The WIT package returned will be a single-document package and will not
+    /// be able to use `pkg` paths to other documents.
+    pub fn parse_file(path: &Path) -> Result<Self> {
+        let contents = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read file {path:?}"))?;
+        Self::parse(path, &contents)
+    }
+
+    /// Parses a WIT package from the directory provided.
+    ///
+    /// All files with the extension `*.wit` or `*.wit.md` will be loaded from
+    /// `path` into the returned package.
+    pub fn parse_dir(path: &Path) -> Result<Self> {
+        let mut map = SourceMap::default();
+        let cx = || format!("failed to read directory {path:?}");
+        for entry in path.read_dir().with_context(&cx)? {
+            let entry = entry.with_context(&cx)?;
+            let path = entry.path();
+            let ty = entry.file_type().with_context(&cx)?;
+            if ty.is_dir() {
+                continue;
+            }
+            if ty.is_symlink() {
+                if path.is_dir() {
+                    continue;
+                }
+            }
+            let filename = match path.file_name().and_then(|s| s.to_str()) {
+                Some(name) => name,
+                None => continue,
+            };
+            if !filename.ends_with(".wit") && !filename.ends_with(".wit.md") {
+                continue;
+            }
+            map.push_file(&path)?;
+        }
+        map.parse()
+    }
+
+    /// Returns an iterator over the list of source files that were read when
+    /// parsing this package.
+    pub fn source_files(&self) -> impl Iterator<Item = &Path> {
+        self.source_map.source_files()
+    }
 }
 
 #[derive(Clone)]
@@ -218,83 +281,6 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
-
-impl UnresolvedPackageGroup {
-    /// Creates an empty set of packages.
-    pub fn new() -> UnresolvedPackageGroup {
-        UnresolvedPackageGroup::default()
-    }
-
-    /// Parses the given string as a wit document.
-    ///
-    /// The `path` argument is used for error reporting. The `contents` provided
-    /// are considered to be the contents of `path`. This function does not read
-    /// the filesystem.
-    pub fn parse(path: impl AsRef<Path>, contents: &str) -> Result<UnresolvedPackageGroup> {
-        let mut map = SourceMap::default();
-        map.push(path.as_ref(), contents);
-        map.parse()
-    }
-
-    /// Parse a WIT package at the provided path.
-    ///
-    /// The path provided is inferred whether it's a file or a directory. A file
-    /// is parsed with [`UnresolvedPackageGroup::parse_file`] and a directory is
-    /// parsed with [`UnresolvedPackageGroup::parse_dir`].
-    pub fn parse_path(path: impl AsRef<Path>) -> Result<UnresolvedPackageGroup> {
-        let path = path.as_ref();
-        if path.is_dir() {
-            UnresolvedPackageGroup::parse_dir(path)
-        } else {
-            UnresolvedPackageGroup::parse_file(path)
-        }
-    }
-
-    /// Parses a WIT package from the file provided.
-    ///
-    /// The return value represents all packages found in the WIT file which
-    /// might be either one or multiple depending on the syntax used.
-    pub fn parse_file(path: impl AsRef<Path>) -> Result<UnresolvedPackageGroup> {
-        let path = path.as_ref();
-        let contents = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read file {path:?}"))?;
-        Self::parse(path, &contents)
-    }
-
-    /// Parses a WIT package from the directory provided.
-    ///
-    /// This method will look at all files under the `path` specified. All
-    /// `*.wit` files are parsed and assumed to be part of the same package
-    /// grouping. This is useful when a WIT package is split across multiple
-    /// files.
-    pub fn parse_dir(path: impl AsRef<Path>) -> Result<UnresolvedPackageGroup> {
-        let path = path.as_ref();
-        let mut map = SourceMap::default();
-        let cx = || format!("failed to read directory {path:?}");
-        for entry in path.read_dir().with_context(&cx)? {
-            let entry = entry.with_context(&cx)?;
-            let path = entry.path();
-            let ty = entry.file_type().with_context(&cx)?;
-            if ty.is_dir() {
-                continue;
-            }
-            if ty.is_symlink() {
-                if path.is_dir() {
-                    continue;
-                }
-            }
-            let filename = match path.file_name().and_then(|s| s.to_str()) {
-                Some(name) => name,
-                None => continue,
-            };
-            if !filename.ends_with(".wit") {
-                continue;
-            }
-            map.push_file(&path)?;
-        }
-        map.parse()
-    }
-}
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize))]

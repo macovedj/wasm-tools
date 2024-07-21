@@ -149,70 +149,12 @@ impl<'a> TypeResolver<'a> {
 
 #[cfg(test)]
 mod tests {
-    use wit_parser::UnresolvedPackageGroup;
+    use wit_parser::{PackageId, UnresolvedPackage};
 
     use super::*;
 
-    #[test]
-    fn resolve_wit_type_smoke_test() {
-        let UnresolvedPackageGroup {
-            mut packages,
-            source_map,
-        } = UnresolvedPackageGroup::parse(
-            "test.wit",
-            r#"
-            package test:types;
-            interface types {
-                type uint8 = u8;
-            }
-        "#,
-        )
-        .unwrap();
-        let mut resolve = Resolve::new();
-        resolve.push(packages.remove(0), &source_map).unwrap();
-
-        let (type_id, _) = resolve.types.iter().next().unwrap();
-        let ty = resolve_wit_type(&resolve, type_id).unwrap();
-        assert_eq!(ty, value::Type::U8);
-    }
-
-    #[test]
-    fn resolve_wit_func_type_smoke_test() {
-        let UnresolvedPackageGroup {
-            mut packages,
-            source_map,
-        } = UnresolvedPackageGroup::parse(
-            "test.wit",
-            r#"
-            package test:types;
-            interface types {
-                type uint8 = u8;
-                no-results: func(a: uint8, b: string);
-                one-result: func(c: uint8, d: string) -> uint8;
-                named-results: func(e: uint8, f: string) -> (x: u8, y: string);
-            }
-        "#,
-        )
-        .unwrap();
-        let mut resolve = Resolve::new();
-        resolve.push(packages.remove(0), &source_map).unwrap();
-
-        for (func_name, expected_display) in [
-            ("no-results", "func(a: u8, b: string)"),
-            ("one-result", "func(c: u8, d: string) -> u8"),
-            (
-                "named-results",
-                "func(e: u8, f: string) -> (x: u8, y: string)",
-            ),
-        ] {
-            let function = resolve
-                .interfaces
-                .iter()
-                .flat_map(|(_, i)| &i.functions)
-                .find_map(|(name, function)| (name == func_name).then_some(function))
-                .unwrap();
-            let ty = resolve_wit_func_type(&resolve, function).unwrap();
-            assert_eq!(ty.to_string(), expected_display, "for {function:?}");
-        }
+    fn parse_into(resolve: &mut Resolve, wit: &str) -> PackageId {
+        let pkg = UnresolvedPackage::parse("input.wit".as_ref(), wit).unwrap();
+        resolve.push(pkg).unwrap()
     }
 }

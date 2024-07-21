@@ -5,8 +5,7 @@ use crate::serde_::{serialize_arena, serialize_id_map};
 use crate::{
     AstItem, Docs, Error, Function, FunctionKind, Handle, IncludeName, Interface, InterfaceId,
     InterfaceSpan, PackageName, Results, SourceMap, Stability, Type, TypeDef, TypeDefKind, TypeId,
-    TypeOwner, UnresolvedPackage, UnresolvedPackageGroup, World, WorldId, WorldItem, WorldKey,
-    WorldSpan,
+    TypeOwner, UnresolvedPackage, World, WorldId, WorldItem, WorldKey, WorldSpan,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use id_arena::{Arena, Id};
@@ -110,42 +109,58 @@ pub type PackageId = Id<Package>;
 enum ParsedFile {
     #[cfg(feature = "decoding")]
     Package(PackageId),
-    Unresolved(UnresolvedPackageGroup),
+    Unresolved(UnresolvedPackage),
 }
 
 /// Visitor helper for performing topological sort on a group of packages.
 fn visit<'a>(
     pkg: &'a UnresolvedPackage,
-    pkg_details_map: &'a BTreeMap<PackageName, (UnresolvedPackage, usize)>,
+    // pkg_details_map: &'a BTreeMap<PackageName, (UnresolvedPackage, usize)>,
+    deps: &'a BTreeMap<PackageName, (UnresolvedPackage, usize)>,
     order: &mut IndexSet<PackageName>,
     visiting: &mut HashSet<&'a PackageName>,
-    source_maps: &[SourceMap],
+    // source_maps: &[SourceMap],
 ) -> Result<()> {
     if order.contains(&pkg.name) {
         return Ok(());
     }
 
-    match pkg_details_map.get(&pkg.name) {
-        Some(pkg_details) => {
-            let (_, source_maps_index) = pkg_details;
-            source_maps[*source_maps_index].rewrite_error(|| {
-                for (i, (dep, _)) in pkg.foreign_deps.iter().enumerate() {
-                    let span = pkg.foreign_dep_spans[i];
-                    if !visiting.insert(dep) {
-                        bail!(Error::new(span, "package depends on itself"));
-                    }
-                    if let Some(dep) = pkg_details_map.get(dep) {
-                        let (dep_pkg, _) = dep;
-                        visit(dep_pkg, pkg_details_map, order, visiting, source_maps)?;
-                    }
-                    assert!(visiting.remove(dep));
-                }
-                assert!(order.insert(pkg.name.clone()));
-                Ok(())
-            })
+    pkg.source_map.rewrite_error(|| {
+        for (i, (dep, _)) in pkg.foreign_deps.iter().enumerate() {
+            let span = pkg.foreign_dep_spans[i];
+            if !visiting.insert(dep) {
+                bail!(Error::new(span, "package depends on itself"));
+            }
+            if let Some(dep) = deps.get(dep) {
+                visit(&dep.0, deps, order, visiting)?;
+            }
+            assert!(visiting.remove(dep));
         }
-        None => panic!("No pkg_details found for package when doing topological sort"),
-    }
+        assert!(order.insert(pkg.name.clone()));
+        Ok(())
+    })
+
+    // match pkg_details_map.get(&pkg.name) {
+    //     Some(pkg_details) => {
+    //         let (_, source_maps_index) = pkg_details;
+    //         source_maps[*source_maps_index].rewrite_error(|| {
+    //             for (i, (dep, _)) in pkg.foreign_deps.iter().enumerate() {
+    //                 let span = pkg.foreign_dep_spans[i];
+    //                 if !visiting.insert(dep) {
+    //                     bail!(Error::new(span, "package depends on itself"));
+    //                 }
+    //                 if let Some(dep) = pkg_details_map.get(dep) {
+    //                     let (dep_pkg, _) = dep;
+    //                     visit(dep_pkg, pkg_details_map, order, visiting, source_maps)?;
+    //                 }
+    //                 assert!(visiting.remove(dep));
+    //             }
+    //             assert!(order.insert(pkg.name.clone()));
+    //             Ok(())
+    //         })
+    //     }
+    //     None => panic!("No pkg_details found for package when doing topological sort"),
+    // }
 }
 
 impl Resolve {
@@ -184,10 +199,12 @@ impl Resolve {
     /// More information can also be found at [`Resolve::push_dir`] and
     /// [`Resolve::push_file`].
     pub fn push_path(&mut self, path: impl AsRef<Path>) -> Result<(PackageId, Vec<PathBuf>)> {
+        dbg!("RESOLVER PUSH PATH");
         self._push_path(path.as_ref())
     }
 
     fn _push_path(&mut self, path: &Path) -> Result<(PackageId, Vec<PathBuf>)> {
+        dbg!(&path);
         if path.is_dir() {
             self.push_dir(path).with_context(|| {
                 format!(
@@ -196,6 +213,7 @@ impl Resolve {
                 )
             })
         } else {
+            dbg!("PUSH FILE");
             let ids = self.push_file(path)?;
             Ok((ids, vec![path.to_path_buf()]))
         }
@@ -203,17 +221,17 @@ impl Resolve {
 
     fn sort_unresolved_packages(
         &mut self,
-        unresolved_groups: Vec<UnresolvedPackageGroup>,
-    ) -> Result<(PackageId, Vec<PathBuf>)> {
+        unresolved_groups: Vec<UnresolvedPackage>,
+    ) -> Result<(Vec<PackageId>, Vec<PathBuf>)> {
         let mut pkg_ids = Vec::new();
         let mut path_bufs = Vec::new();
         let mut pkg_details_map = BTreeMap::new();
         let mut source_maps = Vec::new();
         for (i, unresolved_group) in unresolved_groups.into_iter().enumerate() {
-            let UnresolvedPackageGroup {
-                packages,
-                source_map,
-            } = unresolved_group;
+            // let UnresolvedPackage {
+            //     packages,
+            //     source_map,
+            // } = unresolved_group;
 
             source_maps.push(source_map);
             for pkg in packages {
@@ -233,7 +251,7 @@ impl Resolve {
                 &pkg_details_map,
                 &mut order,
                 &mut visiting,
-                &source_maps,
+                // &source_maps,
             )?;
         }
 
@@ -255,109 +273,210 @@ impl Resolve {
             }
         }
 
-        Ok((pkg_ids[0], path_bufs))
+        Ok((pkg_ids, path_bufs))
     }
-
     /// Parses the filesystem directory at `path` as a WIT package and returns
-    /// a fully resolved [`PackageId`] list as a result.
+    /// the fully resolved [`PackageId`] as a result.
     ///
-    /// The directory itself is parsed with [`UnresolvedPackageGroup::parse_dir`]
-    /// and then all packages found are inserted into this `Resolve`. The `path`
-    /// specified may have a `deps` subdirectory which is probed automatically
-    /// for any other WIT dependencies.
+    /// The directory itself is parsed with [`UnresolvedPackage::parse_dir`]
+    /// which has more information on the layout of the directory. This method,
+    /// however, additionally supports an optional `deps` dir where dependencies
+    /// can be located.
     ///
-    /// The `deps` folder may contain:
+    /// All entries in the `deps` directory are inspected and parsed as follows:
     ///
-    /// * `$path/deps/my-package/*.wit` - a directory that may contain multiple
-    ///   WIT files. This is parsed with [`UnresolvedPackageGroup::parse_dir`]
-    ///   and then inserted into this [`Resolve`]. Note that cannot recursively
-    ///   contain a `deps` directory.
-    /// * `$path/deps/my-package.wit` - a single-file WIT package. This is
-    ///   parsed with [`Resolve::push_file`] and then added to `self` for
-    ///   name reoslution.
-    /// * `$path/deps/my-package.{wasm,wat}` - a wasm-encoded WIT package either
-    ///   in the text for binary format.
+    /// * Any directories inside of `deps` are assumed to be another WIT package
+    ///   and are parsed with [`UnresolvedPackage::parse_dir`].
+    /// * WIT files (`*.wit`) are parsed with [`UnresolvedPackage::parse_file`].
+    /// * WebAssembly files (`*.wasm` or `*.wat`) are assumed to be WIT packages
+    ///   encoded to wasm and are parsed and inserted into `self`.
     ///
-    /// In all cases entries in the `deps` folder are added to `self` first
-    /// before adding files found in `path` itself. All WIT packages found are
-    /// candidates for name-based resolution that other packages may used.
-    ///
-    /// This function returns a tuple of two values. The first value is a list
-    /// of [`PackageId`] values which represents the WIT packages found within
-    /// `path`, but not those within `deps`. The `path` provided may contain
-    /// only a single WIT package but might also use the multi-package form of
-    /// WIT, and the returned list will indicate which was used. This argument
-    /// is useful for passing to [`Resolve::select_world`] for choosing
-    /// something to bindgen with.
-    ///
-    /// The second value returned here is the list of paths that were parsed
-    /// when generating the return value. This can be useful for build systems
-    /// that want to rebuild bindings whenever one of the files change.
-    pub fn push_dir(&mut self, path: impl AsRef<Path>) -> Result<(PackageId, Vec<PathBuf>)> {
-        let path = path.as_ref();
-        let deps_path = path.join("deps");
-        let unresolved_deps = self.parse_deps_dir(&deps_path).with_context(|| {
-            format!(
-                "failed to parse dependency directory: {}",
-                deps_path.display()
-            )
-        })?;
-        let (_, mut path_bufs) = self.sort_unresolved_packages(unresolved_deps)?;
-
-        let unresolved_top_level = UnresolvedPackageGroup::parse_dir(path)
+    /// This function returns the [`PackageId`] of the root parsed package at
+    /// `path`, along with a list of all paths that were consumed during parsing
+    /// for the root package and all dependency packages.
+    pub fn push_dir(&mut self, path: &Path) -> Result<(PackageId, Vec<PathBuf>)> {
+        dbg!("PUSH DIR");
+        let pkg = UnresolvedPackage::parse_dir(path)
             .with_context(|| format!("failed to parse package: {}", path.display()))?;
-        let (pkgs_ids, mut top_level_path_bufs) =
-            self.sort_unresolved_packages(vec![unresolved_top_level])?;
 
-        path_bufs.append(&mut top_level_path_bufs);
-        Ok((pkgs_ids, path_bufs))
+        dbg!(&pkg.name);
+        dbg!(&pkg.interfaces.len());
+
+        let deps = path.join("deps");
+        let mut deps = self
+            .parse_deps_dir(&deps)
+            .with_context(|| format!("failed to parse dependency directory: {}", deps.display()))?;
+
+        // Perform a simple topological sort which will bail out on cycles
+        // and otherwise determine the order that packages must be added to
+        // this `Resolve`.
+        let mut order = IndexSet::new();
+        let mut visiting = HashSet::new();
+        // let foo = deps.values();
+        // for f in foo {}
+        dbg!(&deps.keys());
+        for (pkg, i) in deps.values().chain([&(pkg.clone(), deps.len())])
+        //  {
+        {
+            dbg!("TOP VISIT");
+            visit(&pkg, &deps, &mut order, &mut visiting)?;
+        }
+
+        // Using the topological ordering insert each package incrementally.
+        // Additionally note that the last item visited here is the root
+        // package, which is the one returned here.
+        let mut last = None;
+        let mut files = Vec::new();
+        let mut pkg = Some(pkg);
+        for name in order {
+            dbg!(&name);
+            let (pkg, i) = deps
+                .remove(&name)
+                .unwrap_or_else(|| (pkg.take().unwrap(), deps.len()));
+            files.extend(pkg.source_files().map(|p| p.to_path_buf()));
+            let pkgid = self.push(pkg)?;
+            last = Some(pkgid);
+        }
+        dbg!("DID ORdER");
+
+        dbg!("DONE PUSHING DIR");
+        return Ok((last.unwrap(), files));
+
+        fn visit<'a>(
+            pkg: &'a UnresolvedPackage,
+            // pkg_details_map: &'a BTreeMap<PackageName, (UnresolvedPackage, usize)>,
+            deps: &'a BTreeMap<PackageName, (UnresolvedPackage, usize)>,
+            order: &mut IndexSet<PackageName>,
+            visiting: &mut HashSet<&'a PackageName>,
+            // source_maps: &[SourceMap],
+        ) -> Result<()> {
+            dbg!(&order);
+            dbg!(&pkg.name);
+            // dbg!(&pkg_details_map.keys());
+            if order.contains(&pkg.name) {
+                return Ok(());
+            }
+
+            pkg.source_map.rewrite_error(|| {
+                for (i, (dep, _)) in pkg.foreign_deps.iter().enumerate() {
+                    dbg!(&i, dep);
+                    let span = pkg.foreign_dep_spans[i];
+                    if !visiting.insert(dep) {
+                        bail!(Error::new(span, "package depends on itself"));
+                    }
+                    if let Some(dep) = deps.get(dep) {
+                        dbg!("GOT");
+                        visit(&dep.0, deps, order, visiting)?;
+                    }
+                    dbg!("PRE SSERT");
+                    assert!(visiting.remove(dep));
+                    dbg!("POST SSERT");
+                }
+                dbg!("PRE LAST");
+                assert!(order.insert(pkg.name.clone()));
+                dbg!("POST LAST");
+                Ok(())
+            })
+            // Ok(())
+            // match pkg_details_map.get(&pkg.name) {
+            //     Some(pkg_details) => {
+            //         let (_, source_maps_index) = pkg_details;
+            //         source_maps[*source_maps_index].rewrite_error(|| {
+            //             for (i, (dep, _)) in pkg.foreign_deps.iter().enumerate() {
+            //                 let span = pkg.foreign_dep_spans[i];
+            //                 if !visiting.insert(dep) {
+            //                     bail!(Error::new(span, "package depends on itself"));
+            //                 }
+            //                 if let Some(dep) = pkg_details_map.get(dep) {
+            //                     let (dep_pkg, _) = dep;
+            //                     visit(dep_pkg, pkg_details_map, order, visiting, source_maps)?;
+            //                 }
+            //                 assert!(visiting.remove(dep));
+            //             }
+            //             assert!(order.insert(pkg.name.clone()));
+            //             Ok(())
+            //         })
+            //     }
+            //     None => Ok(()), // None => panic!("No pkg_details found for package when doing topological sort"),
+            // }
+            // if order.contains(&pkg.name) {
+            //     return Ok(());
+            // }
+            // dbg!("VISITING");
+            // pkg.source_map.rewrite_error(|| {
+            //     for (i, (dep, _)) in pkg.foreign_deps.iter().enumerate() {
+            //         dbg!(&dep);
+            //         let span = pkg.foreign_dep_spans[i];
+            //         if !visiting.insert(dep) {
+            //             bail!(Error::new(span, "package depends on itself"));
+            //         }
+            //         dbg!("WILL GET");
+            //         if let Some(dep) = deps.get(dep) {
+            //             dbg!("PRE RECURSE");
+            //             visit(dep, deps, order, visiting)?;
+            //         }
+            //         dbg!("WILL REMOVE");
+            //         dbg!(&visiting);
+            //         assert!(visiting.remove(dep));
+            //     }
+            //     assert!(order.insert(pkg.name.clone()));
+            //     Ok(())
+            // })
+        }
     }
 
-    fn parse_deps_dir(&mut self, path: &Path) -> Result<Vec<UnresolvedPackageGroup>> {
-        let mut unresolved_deps = Vec::new();
+    fn parse_deps_dir(
+        &mut self,
+        path: &Path,
+    ) -> Result<BTreeMap<PackageName, (UnresolvedPackage, usize)>> {
+        dbg!(&path);
+        let mut ret = BTreeMap::new();
         // If there's no `deps` dir, then there's no deps, so return the
         // empty set.
         if !path.exists() {
-            return Ok(unresolved_deps);
+            dbg!("NO DEPS DIR");
+            return Ok(ret);
         }
         let mut entries = path
             .read_dir()
             .and_then(|i| i.collect::<std::io::Result<Vec<_>>>())
             .context("failed to read directory")?;
         entries.sort_by_key(|e| e.file_name());
-        for dep in entries {
+        for (i, dep) in entries.iter().enumerate() {
             let path = dep.path();
-            if dep.file_type()?.is_dir() || path.metadata()?.is_dir() {
+            dbg!(&dep);
+
+            let pkg = if dep.file_type()?.is_dir() || path.metadata()?.is_dir() {
                 // If this entry is a directory or a symlink point to a
                 // directory then always parse it as an `UnresolvedPackage`
                 // since it's intentional to not support recursive `deps`
                 // directories.
-                unresolved_deps.push(
-                    UnresolvedPackageGroup::parse_dir(&path)
-                        .with_context(|| format!("failed to parse package: {}", path.display()))?,
-                )
+                UnresolvedPackage::parse_dir(&path)
+                    .with_context(|| format!("failed to parse package: {}", path.display()))?
             } else {
                 // If this entry is a file then we may want to ignore it but
                 // this may also be a standalone WIT file or a `*.wasm` or
                 // `*.wat` encoded package.
                 let filename = dep.file_name();
-                unresolved_deps.push(
-                    match Path::new(&filename).extension().and_then(|s| s.to_str()) {
-                        Some("wit") | Some("wat") | Some("wasm") => match self._push_file(&path)? {
-                            #[cfg(feature = "decoding")]
-                            ParsedFile::Package(_) => continue,
-                            ParsedFile::Unresolved(pkgs) => pkgs,
-                        },
-
-                        // Other files in deps dir are ignored for now to avoid
-                        // accidentally including things like `.DS_Store` files in
-                        // the call below to `parse_dir`.
-                        _ => continue,
+                match Path::new(&filename).extension().and_then(|s| s.to_str()) {
+                    Some("wit") | Some("wat") | Some("wasm") => match self._push_file(&path)? {
+                        #[cfg(feature = "decoding")]
+                        ParsedFile::Package(_) => continue,
+                        ParsedFile::Unresolved(pkg) => pkg,
                     },
-                )
+
+                    // Other files in deps dir are ignored for now to avoid
+                    // accidentally including things like `.DS_Store` files in
+                    // the call below to `parse_dir`.
+                    _ => continue,
+                }
             };
+            let prev = ret.insert(pkg.name.clone(), (pkg, i));
+            if let Some(prev) = prev {
+                bail!("duplicate definitions of package `{}` found", prev.0.name);
+            }
         }
-        Ok(unresolved_deps)
+        Ok(ret)
     }
 
     /// Parses the contents of `path` from the filesystem and pushes the result
@@ -378,7 +497,7 @@ impl Resolve {
         match self._push_file(path.as_ref())? {
             #[cfg(feature = "decoding")]
             ParsedFile::Package(id) => Ok(id),
-            ParsedFile::Unresolved(pkgs) => self.push_group(pkgs),
+            ParsedFile::Unresolved(pkg) => self.push(pkg),
         }
     }
 
@@ -421,8 +540,8 @@ impl Resolve {
             Ok(s) => s,
             Err(_) => bail!("input file is not valid utf-8 [{}]", path.display()),
         };
-        let pkgs = UnresolvedPackageGroup::parse(path, text)?;
-        Ok(ParsedFile::Unresolved(pkgs))
+        let pkg = UnresolvedPackage::parse(path, text)?;
+        Ok(ParsedFile::Unresolved(pkg))
     }
 
     /// Appends a new [`UnresolvedPackage`] to this [`Resolve`], creating a
@@ -435,35 +554,27 @@ impl Resolve {
     /// Any dependency resolution error or otherwise world-elaboration error
     /// will be returned here, if successful a package identifier is returned
     /// which corresponds to the package that was just inserted.
-    pub fn push(
-        &mut self,
-        unresolved: UnresolvedPackage,
-        source_map: &SourceMap,
-    ) -> Result<PackageId> {
+    pub fn push(&mut self, mut unresolved: UnresolvedPackage) -> Result<PackageId> {
+        let source_map = mem::take(&mut unresolved.source_map);
+        dbg!("WAY HERE");
+        dbg!(&unresolved.interfaces.len());
+        dbg!(&unresolved.name.name);
         source_map.rewrite_error(|| Remap::default().append(self, unresolved))
     }
-
-    /// Appends new [`UnresolvedPackageGroup`] to this [`Resolve`], creating a
+    /// Appends new [`UnresolvedPackageSet`] to this [`Resolve`], creating a
     /// fully resolved package with no dangling references.
+    ///
+    /// The `deps` argument indicates that the named dependencies in
+    /// `unresolved` to packages are resolved by the mapping specified.
     ///
     /// Any dependency resolution error or otherwise world-elaboration error
     /// will be returned here, if successful a package identifier is returned
     /// which corresponds to the package that was just inserted.
     ///
-    /// The returned [`PackageId`]s are listed in topologically sorted order.
-    pub fn push_group(&mut self, unresolved_groups: UnresolvedPackageGroup) -> Result<PackageId> {
+    /// The returned [PackageId]s are listed in topologically sorted order.
+    pub fn append(&mut self, unresolved_groups: UnresolvedPackage) -> Result<Vec<PackageId>> {
         let (pkg_ids, _) = self.sort_unresolved_packages(vec![unresolved_groups])?;
         Ok(pkg_ids)
-    }
-
-    /// Convenience method for combining [`UnresolvedPackageGroup::parse`] and
-    /// [`Resolve::push_group`].
-    ///
-    /// The `path` provided is used for error messages but otherwise is not
-    /// read. This method does not touch the filesystem. The `contents` provided
-    /// are the contents of a WIT package.
-    pub fn push_str(&mut self, path: impl AsRef<Path>, contents: &str) -> Result<PackageId> {
-        self.push_group(UnresolvedPackageGroup::parse(path.as_ref(), contents)?)
     }
 
     pub fn all_bits_valid(&self, ty: &Type) -> bool {
@@ -1354,7 +1465,11 @@ impl Remap {
         resolve: &mut Resolve,
         unresolved: UnresolvedPackage,
     ) -> Result<PackageId> {
+        dbg!("APPENDING");
+        dbg!(&unresolved.interfaces.len());
+        dbg!(&unresolved.worlds.len());
         self.process_foreign_deps(resolve, &unresolved)?;
+        dbg!("PROCESSED FOREIGN DEPS");
 
         let foreign_types = self.types.len();
         let foreign_interfaces = self.interfaces.len();
@@ -1368,6 +1483,7 @@ impl Remap {
         });
         let prev = resolve.package_names.insert(unresolved.name.clone(), pkgid);
         assert!(prev.is_none());
+        dbg!("GOT HERE");
 
         // Copy over all types first, updating any intra-type references. Note
         // that types are sorted topologically which means this iteration
@@ -1409,6 +1525,9 @@ impl Remap {
             };
             self.types.push(Some(new_id));
         }
+        dbg!("TYPE LOOP DONE");
+        dbg!(&unresolved.interfaces.len());
+        dbg!(&unresolved.worlds.len());
 
         // Next transfer all interfaces into `Resolve`, updating type ids
         // referenced along the way.
@@ -1422,6 +1541,7 @@ impl Remap {
             .zip(&unresolved.interface_spans)
             .skip(foreign_interfaces)
         {
+            dbg!("DID AN IFACE");
             if !resolve.include_stability(&iface.stability) {
                 self.interfaces.push(None);
                 continue;
@@ -1433,6 +1553,7 @@ impl Remap {
             assert_eq!(self.interfaces.len(), id.index());
             self.interfaces.push(Some(new_id));
         }
+        dbg!("IFACE LOOP DONE");
 
         // Now that interfaces are identified go back through the types and
         // update their interface owners.
@@ -1467,6 +1588,7 @@ impl Remap {
             .zip(unresolved.world_spans)
             .skip(foreign_worlds)
         {
+            dbg!(&world.name);
             if !resolve.include_stability(&world.stability) {
                 self.worlds.push(None);
                 continue;
@@ -1535,8 +1657,10 @@ impl Remap {
         let mut interface_to_package = HashMap::new();
         for (i, (pkg_name, worlds_or_ifaces)) in unresolved.foreign_deps.iter().enumerate() {
             for (name, item) in worlds_or_ifaces {
+                dbg!(&name);
                 match item {
                     AstItem::Interface(unresolved_interface_id) => {
+                        dbg!("IFACE");
                         let prev = interface_to_package.insert(
                             *unresolved_interface_id,
                             (pkg_name, name, unresolved.foreign_dep_spans[i]),
@@ -1544,6 +1668,7 @@ impl Remap {
                         assert!(prev.is_none());
                     }
                     AstItem::World(unresolved_world_id) => {
+                        dbg!("WORLD");
                         let prev = world_to_package.insert(
                             *unresolved_world_id,
                             (pkg_name, name, unresolved.foreign_dep_spans[i]),
@@ -1553,11 +1678,13 @@ impl Remap {
                 }
             }
         }
+        dbg!("FOREGIN DEP LOOP DONE");
 
         // Connect all interfaces referred to in `interface_to_package`, which
         // are at the front of `unresolved.interfaces`, to interfaces already
         // contained within `resolve`.
         self.process_foreign_interfaces(unresolved, &interface_to_package, resolve)?;
+        dbg!("PROCESSED IFACES");
 
         // Connect all worlds referred to in `world_to_package`, which
         // are at the front of `unresolved.worlds`, to worlds already
@@ -1591,6 +1718,7 @@ impl Remap {
         interface_to_package: &HashMap<InterfaceId, (&PackageName, &String, Span)>,
         resolve: &mut Resolve,
     ) -> Result<(), anyhow::Error> {
+        dbg!(&unresolved.interfaces);
         for (unresolved_iface_id, unresolved_iface) in unresolved.interfaces.iter() {
             let (pkg_name, interface, span) = match interface_to_package.get(&unresolved_iface_id) {
                 Some(items) => *items,
@@ -1599,25 +1727,34 @@ impl Remap {
                 // further interfaces will be non-foreign as well.
                 None => break,
             };
+            dbg!("GET ID");
             let pkgid = resolve
                 .package_names
                 .get(pkg_name)
                 .copied()
                 .ok_or_else(|| Error::new(span, "package not found"))?;
+            dbg!("GOT");
 
             // Functions can't be imported so this should be empty.
             assert!(unresolved_iface.functions.is_empty());
 
             let pkg = &resolve.packages[pkgid];
             let span = &unresolved.interface_spans[unresolved_iface_id.index()];
-            let iface_id = pkg
-                .interfaces
-                .get(interface)
-                .copied()
-                .ok_or_else(|| Error::new(span.span, "interface not found in package"))?;
-            assert_eq!(self.interfaces.len(), unresolved_iface_id.index());
+            dbg!("GET ID");
+            dbg!(&interface);
+            dbg!(&pkg.interfaces);
+
+            let iface_id = pkg.interfaces.get(interface).copied().ok_or_else(|| {
+                dbg!("IS THIS HERE");
+                Error::new(span.span, "interface not found in package")
+            })?;
+            // .unwrap();
+            // .or_else(|_| Error::new(span.span, "interface not found in package"))?;
+            dbg!("GOT");
+            // assert_eq!(self.interfaces.len(), unresolved_iface_id.index());
             self.interfaces.push(Some(iface_id));
         }
+        dbg!("FIRST LOOP");
         for (id, _) in unresolved.interfaces.iter().skip(self.interfaces.len()) {
             assert!(
                 interface_to_package.get(&id).is_none(),
@@ -2657,45 +2794,47 @@ impl<'a> MergeMap<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::Resolve;
+    use crate::{PackageId, Resolve};
     use anyhow::Result;
 
     #[test]
     fn select_world() -> Result<()> {
         let mut resolve = Resolve::default();
-        resolve.push_str(
-            "test.wit",
+        parse_into(
+            &mut resolve,
             r#"
                 package foo:bar@0.1.0;
 
                 world foo {}
             "#,
-        )?;
-        resolve.push_str(
-            "test.wit",
+        );
+
+        parse_into(
+            &mut resolve,
             r#"
                 package foo:baz@0.1.0;
 
                 world foo {}
             "#,
-        )?;
-        resolve.push_str(
-            "test.wit",
+        );
+
+        parse_into(
+            &mut resolve,
             r#"
                 package foo:baz@0.2.0;
 
                 world foo {}
             "#,
-        )?;
+        );
 
-        let dummy = resolve.push_str(
-            "test.wit",
+        let dummy = parse_into(
+            &mut resolve,
             r#"
                 package foo:dummy;
 
                 world foo {}
             "#,
-        )?;
+        );
 
         assert!(resolve.select_world(dummy, None).is_ok());
         assert!(resolve.select_world(dummy, Some("xx")).is_err());
@@ -2712,5 +2851,9 @@ mod tests {
             .select_world(dummy, Some("foo:baz/foo@0.2.0"))
             .is_ok());
         Ok(())
+    }
+    fn parse_into(resolve: &mut Resolve, wit: &str) -> PackageId {
+        let pkg = crate::UnresolvedPackage::parse("input.wit".as_ref(), wit).unwrap();
+        resolve.push(pkg).unwrap()
     }
 }
