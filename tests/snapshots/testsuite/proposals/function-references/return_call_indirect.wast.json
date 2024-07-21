@@ -1048,29 +1048,22 @@
     },
     {
       "type": "assert_invalid",
-      "line": 512,
+      "line": 516,
       "filename": "return_call_indirect.25.wasm",
-      "text": "type mismatch",
+      "text": "unknown type",
       "module_type": "binary"
     },
     {
       "type": "assert_invalid",
-      "line": 526,
+      "line": 523,
       "filename": "return_call_indirect.26.wasm",
       "text": "unknown type",
       "module_type": "binary"
     },
     {
       "type": "assert_invalid",
-      "line": 533,
+      "line": 534,
       "filename": "return_call_indirect.27.wasm",
-      "text": "unknown type",
-      "module_type": "binary"
-    },
-    {
-      "type": "assert_invalid",
-      "line": 544,
-      "filename": "return_call_indirect.28.wasm",
       "text": "unknown function 0",
       "module_type": "binary"
     }
